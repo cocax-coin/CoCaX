@@ -11,7 +11,7 @@ A Layer-1 style blockchain node, HTTP gateway, and browser wallet built in Go.
 | **Halving interval** | every 1,000,000 blocks |
 | **Fixed tx fee** | 0.01 CoX |
 | **Target block time** | 30 seconds |
-| **Founder allocation** | 3,300,000 CoX → `CoX_FOUNDER_PLACEHOLDER_UPDATE_ME` |
+| **Founder allocation** | 3,300,000 CoX → set with `-founder <your CoX address>` |
 
 ---
 
@@ -42,7 +42,7 @@ A Layer-1 style blockchain node, HTTP gateway, and browser wallet built in Go.
 
 ### Genesis
 - **Message**: *"For united peoples working together. To hell with geography and borders, let us unite!"*
-- **Founder allocation**: 3,300,000 CoX pre-allocated to `CoX_FOUNDER_PLACEHOLDER_UPDATE_ME`
+- **Founder allocation**: 3,300,000 CoX pre-allocated to the address specified via `-founder` (see [Founder Setup](#founder-setup) below).
 - **Genesis block** is created automatically on first run if no `data/` directory exists.
 
 ### Address Derivation
@@ -152,9 +152,11 @@ go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 | `-addr` | `0.0.0.0:9000` | P2P listen address |
 | `-api` | `0.0.0.0:8080` | HTTP API listen address |
 | `-peers` | *(empty)* | Comma-separated peer addresses |
-| `-miner` | `CoX_FOUNDER_PLACEHOLDER_UPDATE_ME` | Address to receive block rewards |
+| `-founder` | *(empty → placeholder)* | Your CoX address for the 3.3M genesis allocation |
+| `-miner` | *(same as founder)* | Address to receive block rewards |
 | `-mine` | `false` | Mine one block immediately on startup |
 | `-data` | `./data` | Directory for `blocks.json` / `state.json` |
+| `-genaddr` | `false` | Generate a new CoX address + key pair, then exit |
 
 ### Example: Two-Node Setup
 ```bash
@@ -215,6 +217,105 @@ go test ./...
 # Run
 go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 ```
+
+---
+
+## Founder Setup / إعداد عنوان المؤسس
+
+> **English** – How to set your personal founder address and run the wallet.
+> 
+> **عربي** – كيف تُعدّ عنوان المؤسس الخاص بك وتشغّل المحفظة.
+
+---
+
+### Step 1 – Generate your CoX address  /  الخطوة 1 – توليد عنوانك
+
+**Option A – Browser wallet (recommended / المُوصى به)**
+
+1. Start the node in a **temporary** data directory so the wallet UI is reachable (this run will use the placeholder founder; it is just to access the wallet):
+   ```bash
+   go run . -api 0.0.0.0:8080 -data ./data-tmp
+   ```
+2. Open **`http://localhost:8080/`** in your browser.
+3. Click **"✦ Create New Wallet"**.
+4. Write down your **12-word mnemonic phrase** on paper and store it safely.
+5. Set a strong password → click **"Confirm & Unlock Wallet"**.
+6. Your **CoX address** appears on the Dashboard (e.g. `CoX8f3a…`). **Copy it.**
+
+---
+
+**Option B – Command line / سطر الأوامر**
+
+```bash
+go run . -genaddr
+```
+
+Sample output:
+```
+================================================================
+  CoCaX Address Generator  |  CoXaNa Wallet Compatible
+================================================================
+  CoX Address  : CoX8f3a1b2c...
+  Private Key  : 7a3f...
+  ...
+================================================================
+```
+
+Copy the **CoX Address** line.
+
+---
+
+### Step 2 – Start the node with your founder address  /  الخطوة 2 – تشغيل العقدة بعنوانك
+
+```bash
+# Replace with YOUR address from Step 1
+go run . \
+  -founder CoX8f3a1b2c... \
+  -addr 0.0.0.0:9000 \
+  -api  0.0.0.0:8080 \
+  -mine \
+  -data ./data
+```
+
+On first run the node will:
+- Create `./data/blocks.json` and `./data/state.json`
+- Credit your address with **3,300,000 CoX** in the genesis block
+- Mine block #1 (because of `-mine`) and credit your address with the block reward
+
+---
+
+### Step 3 – Verify your balance  /  الخطوة 3 – التحقق من رصيدك
+
+```bash
+curl http://localhost:8080/balance/CoX8f3a1b2c...
+```
+```json
+{ "address": "CoX8f3a1b2c...", "balance": 3300003.3, "nonce": 0 }
+```
+
+Or open the wallet UI at **`http://localhost:8080/`** and log in with your mnemonic.
+
+---
+
+### Step 4 – Wallet walkthrough  /  الخطوة 4 – جولة في المحفظة
+
+| Tab | What it does |
+|-----|-------------|
+| **Dashboard** | Shows your CoX address, live balance, and nonce |
+| **Send** | Enter recipient address + amount → wallet signs locally → submits to node |
+| **Receive** | Displays your address with a one-click copy button |
+| **🔒 Lock** | Clears the session key; next visit requires your password |
+
+> **Security / أمان:** The private key is **never sent to the server**. All signing happens inside the browser using the Web Crypto API. Your mnemonic is encrypted with AES-GCM before being stored in `localStorage`.
+
+---
+
+### Important Notes / ملاحظات مهمة
+
+- ⚠️ **Never share your private key or mnemonic phrase with anyone.**
+- ⚠️ **لا تشارك مفتاحك الخاص أو عبارة الاسترداد مع أي شخص.**
+- The `-founder` flag only takes effect on the **very first run** (genesis block creation). If `./data/` already exists, delete it and restart to apply a new founder address.
+- المعلّمة `-founder` تعمل فقط عند **أول تشغيل** (إنشاء كتلة البداية). إذا كان المجلد `./data/` موجوداً بالفعل، احذفه وأعد التشغيل لتطبيق عنوان مؤسس جديد.
 
 ---
 

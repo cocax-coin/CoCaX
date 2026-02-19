@@ -233,7 +233,7 @@ func TestMempool_InsufficientBalance(t *testing.T) {
 
 func TestFounderAllocationAtGenesis(t *testing.T) {
 	dir := t.TempDir()
-	cs, err := LoadState(dir)
+	cs, err := LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestFounderAllocationAtGenesis(t *testing.T) {
 
 func TestLoadState_Persists(t *testing.T) {
 	dir := t.TempDir()
-	cs, err := LoadState(dir)
+	cs, err := LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState (first): %v", err)
 	}
@@ -259,7 +259,7 @@ func TestLoadState_Persists(t *testing.T) {
 	if err := SaveState(dir, cs); err != nil {
 		t.Fatalf("SaveState: %v", err)
 	}
-	cs2, err := LoadState(dir)
+	cs2, err := LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState (second): %v", err)
 	}
@@ -275,7 +275,7 @@ func TestLoadState_Persists(t *testing.T) {
 
 func TestMineBlock(t *testing.T) {
 	dir := t.TempDir()
-	cs, _ := LoadState(dir)
+	cs, _ := LoadState(dir, "")
 	// Use a fresh key as miner address.
 	priv, _ := GenerateKeyPair()
 	minerAddr := DeriveAddress(&priv.PublicKey)
@@ -305,7 +305,7 @@ func TestMineBlock(t *testing.T) {
 
 func TestSaveState_CreatesFiles(t *testing.T) {
 	dir := t.TempDir()
-	cs, _ := LoadState(dir)
+	cs, _ := LoadState(dir, "")
 	// Files should already exist after LoadState (genesis path).
 	if _, err := os.Stat(dir + "/blocks.json"); err != nil {
 		t.Errorf("blocks.json not created: %v", err)
@@ -314,4 +314,50 @@ func TestSaveState_CreatesFiles(t *testing.T) {
 		t.Errorf("state.json not created: %v", err)
 	}
 	_ = cs
+}
+
+// ---- Custom founder address (-founder flag) ---------------------------------
+
+func TestCustomFounderAddress(t *testing.T) {
+	// Generate a fresh address to use as a custom founder.
+	priv, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	customFounder := DeriveAddress(&priv.PublicKey)
+
+	dir := t.TempDir()
+	cs, err := LoadState(dir, customFounder)
+	if err != nil {
+		t.Fatalf("LoadState with custom founder: %v", err)
+	}
+
+	// Custom founder should have the allocation.
+	acc, ok := cs.Accounts[customFounder]
+	if !ok {
+		t.Fatal("custom founder account not found after genesis")
+	}
+	if !floatEqual(acc.Balance, FounderAllocation) {
+		t.Errorf("custom founder balance: want %.2f, got %.2f", FounderAllocation, acc.Balance)
+	}
+	// The default placeholder must NOT have received the allocation.
+	if _, ok := cs.Accounts[FounderAddress]; ok {
+		t.Error("default founder placeholder should not have an account when custom founder is set")
+	}
+}
+
+// ---- -genaddr logic (key generation + address derivation) -------------------
+
+func TestGenerateKeyPair_ProducesValidAddress(t *testing.T) {
+	priv, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("GenerateKeyPair: %v", err)
+	}
+	addr := DeriveAddress(&priv.PublicKey)
+	if len(addr) < len(AddressPrefix)+1 {
+		t.Fatalf("address too short: %s", addr)
+	}
+	if addr[:len(AddressPrefix)] != AddressPrefix {
+		t.Errorf("address missing prefix %q: %s", AddressPrefix, addr)
+	}
 }

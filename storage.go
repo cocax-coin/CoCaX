@@ -16,7 +16,11 @@ type persistedState struct {
 // LoadState loads chain + account state from disk.
 // If no persisted state exists it creates the genesis block and initialises the
 // founder allocation, then saves to disk.
-func LoadState(dataDir string) (*ChainState, error) {
+// founderAddr overrides the default FounderAddress constant when provided (non-empty).
+func LoadState(dataDir, founderAddr string) (*ChainState, error) {
+	if founderAddr == "" {
+		founderAddr = FounderAddress
+	}
 	blocksPath := filepath.Join(dataDir, "blocks.json")
 	statePath := filepath.Join(dataDir, "state.json")
 
@@ -46,10 +50,10 @@ func LoadState(dataDir string) (*ChainState, error) {
 		return nil, fmt.Errorf("failed to create data dir: %w", err)
 	}
 
-	genesis := buildGenesisBlock()
+	genesis := buildGenesisBlock(founderAddr)
 	cs.Chain = []Block{genesis}
-	cs.Accounts[FounderAddress] = &Account{
-		Address: FounderAddress,
+	cs.Accounts[founderAddr] = &Account{
+		Address: founderAddr,
 		Balance: FounderAllocation,
 		Nonce:   0,
 	}
@@ -86,13 +90,14 @@ func SaveState(dataDir string, cs *ChainState) error {
 	return os.WriteFile(statePath, stateData, 0644)
 }
 
-// buildGenesisBlock constructs the hard-coded genesis block.
-func buildGenesisBlock() Block {
+// buildGenesisBlock constructs the genesis block.
+// founderAddr is the address that receives the genesis coinbase (for record keeping).
+func buildGenesisBlock(founderAddr string) Block {
 	now := time.Now().Unix()
 	genesisTx := Transaction{
 		ID:         "genesis-coinbase",
 		From:       "coinbase",
-		To:         FounderAddress,
+		To:         founderAddr,
 		Amount:     0,
 		Fee:        0,
 		Nonce:      0,

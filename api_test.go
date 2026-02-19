@@ -12,7 +12,7 @@ import (
 func newTestServer(t *testing.T) (*httptest.Server, *ChainState) {
 	t.Helper()
 	dir := t.TempDir()
-	cs, err := LoadState(dir)
+	cs, err := LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
