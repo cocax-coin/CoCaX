@@ -1,0 +1,11 @@
+# Build outputs
+cocax-core
+cocax-core.exe
+
+# Data directory (runtime persistence)
+data/
+
+# OS / editor files
+.DS_Store
+*.swp
+*.swo
