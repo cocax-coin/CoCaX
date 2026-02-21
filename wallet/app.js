@@ -15,7 +15,7 @@
 /* ============================================================
    Configuration
    ============================================================ */
-const API_BASE = 'http://199.247.18.240';
+const API_BASE = 'https://coxanas.com/api';
 
 const FIXED_FEE   = 0.01;
 const STORAGE_KEY = 'cocax_wallet_v1';
@@ -71,10 +71,12 @@ const WORD_SET = new Set(WORDS);
    Utility helpers
    ============================================================ */
 function toHex(bytes) {
+  console.log('toHex start');
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function fromHex(hex) {
+  console.log('fromHex start');
   const bytes = new Uint8Array(Math.ceil(hex.length / 2));
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
@@ -83,6 +85,7 @@ function fromHex(hex) {
 }
 
 function b64urlToBytes(b64url) {
+  console.log('b64urlToBytes start');
   const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
   const padded = b64.padEnd(b64.length + (4 - b64.length % 4) % 4, '=');
   const binary = atob(padded);
@@ -90,6 +93,7 @@ function b64urlToBytes(b64url) {
 }
 
 function padTo32(bytes) {
+  console.log('padTo32 start');
   if (bytes.length >= 32) return bytes.slice(bytes.length - 32);
   const out = new Uint8Array(32);
   out.set(bytes, 32 - bytes.length);
@@ -97,6 +101,7 @@ function padTo32(bytes) {
 }
 
 function showMsg(id, msg, type = 'info') {
+  console.log('showMsg start');
   const el = document.getElementById(id);
   if (!el) return;
   el.innerHTML = msg
@@ -105,6 +110,7 @@ function showMsg(id, msg, type = 'info') {
 }
 
 async function copyText(text) {
+  console.log('copyText start');
   try { await navigator.clipboard.writeText(text); return true; }
   catch (_) { return false; }
 }
@@ -119,6 +125,7 @@ async function copyText(text) {
  *   SEQUENCE { INTEGER 0  AlgorithmIdentifier  OCTET STRING { ECPrivateKey } }
  */
 function buildPKCS8(privBytes) {
+  console.log('buildPKCS8 start');
   const hdr = new Uint8Array([
     0x30, 0x41,                                     // SEQUENCE, length 65
     0x02, 0x01, 0x00,                               // INTEGER 0 (version)
@@ -141,6 +148,7 @@ function buildPKCS8(privBytes) {
  * Salt is the UTF-8 encoding of "CoCaX-v1-key".
  */
 async function mnemonicToPrivBytes(mnemonic) {
+  console.log('mnemonicToPrivBytes start');
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw', enc.encode(mnemonic.trim().toLowerCase()),
@@ -157,6 +165,7 @@ async function mnemonicToPrivBytes(mnemonic) {
  * Import a 32-byte private scalar as an ECDSA P-256 CryptoKey (signing key).
  */
 async function importPrivKey(privBytes) {
+  console.log('importPrivKey start');
   return crypto.subtle.importKey(
     'pkcs8', buildPKCS8(privBytes),
     { name: 'ECDSA', namedCurve: 'P-256' },
@@ -168,6 +177,7 @@ async function importPrivKey(privBytes) {
  * Export the public key coordinates (x, y) from a private CryptoKey as hex strings.
  */
 async function exportPubKeyHex(privateKey) {
+  console.log('exportPubKeyHex start');
   const jwk = await crypto.subtle.exportKey('jwk', privateKey);
   const xBytes = padTo32(b64urlToBytes(jwk.x));
   const yBytes = padTo32(b64urlToBytes(jwk.y));
@@ -179,6 +189,7 @@ async function exportPubKeyHex(privateKey) {
  * Must match the Go backend: SHA-256(X_32 || Y_32) → first 20 bytes → hex → "CoX" prefix.
  */
 async function deriveAddress(xHex, yHex) {
+  console.log('deriveAddress start');
   const xBytes = padTo32(fromHex(xHex));
   const yBytes = padTo32(fromHex(yHex));
   const pubBytes = new Uint8Array(64);
@@ -193,6 +204,7 @@ async function deriveAddress(xHex, yHex) {
  * Format: "from=…&to=…&amount=<8dp>&fee=<8dp>&nonce=<uint>&timestamp=<int>"
  */
 function txSigningPayload(tx) {
+  console.log('txSigningPayload start');
   return `from=${tx.from}&to=${tx.to}&amount=${Number(tx.amount).toFixed(8)}&fee=${Number(tx.fee).toFixed(8)}&nonce=${tx.nonce}&timestamp=${tx.timestamp}`;
 }
 
@@ -200,6 +212,7 @@ function txSigningPayload(tx) {
  * Sign a transaction object, returning it with sig_r, sig_s, pub_key_x, pub_key_y set.
  */
 async function signTransaction(tx, privateKey, xHex, yHex) {
+  console.log('signTransaction start');
   const payload = txSigningPayload(tx);
   const data = new TextEncoder().encode(payload);
   const sigBuf = await crypto.subtle.sign(
@@ -221,6 +234,7 @@ async function signTransaction(tx, privateKey, xHex, yHex) {
    ============================================================ */
 
 async function encryptMnemonic(mnemonic, password) {
+  console.log('encryptMnemonic start');
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv   = crypto.getRandomValues(new Uint8Array(12));
@@ -247,6 +261,7 @@ async function encryptMnemonic(mnemonic, password) {
 }
 
 async function decryptMnemonic(encrypted, password) {
+  console.log('decryptMnemonic start');
   const enc = new TextEncoder();
   const salt       = fromHex(encrypted.salt);
   const iv         = fromHex(encrypted.iv);
@@ -273,6 +288,7 @@ async function decryptMnemonic(encrypted, password) {
    Mnemonic generation
    ============================================================ */
 function generateMnemonic() {
+  console.log('generateMnemonic start');
   const words = [];
   const arr = new Uint8Array(12);
   crypto.getRandomValues(arr);
@@ -283,6 +299,7 @@ function generateMnemonic() {
 }
 
 function validateSeedWords(words) {
+  console.log('validateSeedWords start');
   if (!(words.length === 12 || words.length === 24)) return false;
   return words.every(w => WORD_SET.has(w));
 }
@@ -303,32 +320,39 @@ const wallet = {
    localStorage helpers
    ============================================================ */
 function loadStorage() {
+  console.log('loadStorage start');
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); }
   catch (_) { return null; }
 }
 
 function saveStorage(data) {
+  console.log('saveStorage start');
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
 function clearStorage() {
+  console.log('clearStorage start');
   localStorage.removeItem(STORAGE_KEY);
 }
 
 function setSession(data) {
+  console.log('setSession start');
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
 }
 
 function getSession() {
+  console.log('getSession start');
   try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); }
   catch (_) { return null; }
 }
 
 function clearSession() {
+  console.log('clearSession start');
   sessionStorage.removeItem(SESSION_KEY);
 }
 
 function credentialError(msg) {
+  console.log('credentialError start');
   const err = new Error('Invalid Credentials');
   err.userMessage = 'Invalid Credentials';
   if (msg) err.userMessage = msg;
@@ -339,12 +363,14 @@ function credentialError(msg) {
    API helpers
    ============================================================ */
 async function fetchBalance(address) {
+  console.log('fetchBalance start');
   const res = await fetch(`${API_BASE}/balance/${address}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 async function submitTx(tx) {
+  console.log('submitTx start');
   const res = await fetch(`${API_BASE}/tx/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -359,12 +385,14 @@ async function submitTx(tx) {
    UI helpers
    ============================================================ */
 function showScreen(id) {
+  console.log('showScreen start');
   for (const s of ['setup-screen', 'lock-screen', 'wallet-screen']) {
     document.getElementById(s).style.display = (s === id) ? '' : 'none';
   }
 }
 
 function showTab(name) {
+  console.log('showTab start');
   document.querySelectorAll('.tab-btn').forEach(b => {
     if (b.dataset.tab) b.classList.toggle('active', b.dataset.tab === name);
   });
@@ -374,6 +402,7 @@ function showTab(name) {
 }
 
 function updateDashboard() {
+  console.log('updateDashboard start');
   document.getElementById('dash-address').textContent = wallet.address;
   document.getElementById('dash-balance').textContent = `${wallet.balance.toFixed(4)} CoX`;
   document.getElementById('dash-nonce').textContent   = wallet.nonce;
@@ -381,6 +410,7 @@ function updateDashboard() {
 }
 
 async function refreshBalance() {
+  console.log('refreshBalance start');
   try {
     const data = await fetchBalance(wallet.address);
     wallet.balance = data.balance || 0;
@@ -406,6 +436,7 @@ async function refreshBalance() {
    Wallet builders
    ============================================================ */
 async function buildWalletFromPrivBytes(privBytes) {
+  console.log('buildWalletFromPrivBytes start');
   if (!(privBytes instanceof Uint8Array)) throw credentialError('Private key must be bytes.');
   if (privBytes.length < 32) throw credentialError('Invalid Credentials');
   const privateKey = await importPrivKey(privBytes);
@@ -423,6 +454,7 @@ async function buildWalletFromPrivBytes(privBytes) {
 }
 
 async function deriveWalletFromMnemonic(mnemonicInput) {
+  console.log('deriveWalletFromMnemonic start');
   const normalized = mnemonicInput.trim().toLowerCase().split(/\s+/);
   if (!validateSeedWords(normalized)) throw credentialError();
   const mnemonic = normalized.join(' ');
@@ -433,6 +465,7 @@ async function deriveWalletFromMnemonic(mnemonicInput) {
 }
 
 async function deriveWalletFromPrivHex(privHex) {
+  console.log('deriveWalletFromPrivHex start');
   if (!/^[0-9a-fA-F]{64}$/.test(privHex.trim())) {
     throw credentialError();
   }
@@ -445,6 +478,7 @@ async function deriveWalletFromPrivHex(privHex) {
    Session-aware UI flows
    ============================================================ */
 function setupEntryPage() {
+  console.log('setupEntryPage start');
   const root = document.getElementById('entry-root');
   if (!root) return;
 
@@ -517,6 +551,7 @@ function setupEntryPage() {
 }
 
 function setupDashboardPage() {
+  console.log('setupDashboardPage start');
   const root = document.getElementById('dashboard-root');
   if (!root) return;
 
@@ -621,6 +656,7 @@ function setupDashboardPage() {
    Dashboard helpers
    ============================================================ */
 function updateDashboardUI(state) {
+  console.log('updateDashboardUI start');
   if (document.getElementById('dash-address')) {
     document.getElementById('dash-address').textContent = state.address;
   }
@@ -636,6 +672,7 @@ function updateDashboardUI(state) {
 }
 
 async function refreshBalanceUI(state) {
+  console.log('refreshBalanceUI start');
   try {
     const data = await fetchBalance(state.address);
     state.balance = data.balance || 0;
