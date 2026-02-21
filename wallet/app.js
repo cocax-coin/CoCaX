@@ -289,19 +289,14 @@ async function decryptMnemonic(encrypted, password) {
    ============================================================ */
 function generateMnemonic() {
   console.log('generateMnemonic start');
-  const words = [];
-  const arr = new Uint8Array(12);
-  crypto.getRandomValues(arr);
-  for (let i = 0; i < 12; i++) {
-    words.push(WORDS[arr[i] % WORDS.length]);
-  }
-  return words.join(' ');
+  const entropy = ethers.utils.randomBytes(16);
+  return ethers.utils.entropyToMnemonic(entropy);
 }
 
 function validateSeedWords(words) {
   console.log('validateSeedWords start');
-  if (!(words.length === 12 || words.length === 24)) return false;
-  return words.every(w => WORD_SET.has(w));
+  const phrase = words.join(' ');
+  return ethers.utils.isValidMnemonic(phrase);
 }
 
 /* ============================================================
@@ -688,7 +683,7 @@ async function refreshBalanceUI(state) {
 /* ============================================================
    Startup
    ============================================================ */
-(() => {
+window.onload = () => {
   setupEntryPage();
   setupDashboardPage();
-})();
+};
