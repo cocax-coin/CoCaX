@@ -26,7 +26,7 @@ html, body {
 }
 
 /* --- Layout ---------------------------------------------------------------- */
-#app { max-width: 680px; margin: 0 auto; padding: 24px 16px 48px; }
+.app-shell { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
 
 header {
   display: flex;
@@ -38,6 +38,10 @@ header {
 }
 header .logo { font-size: 1.6rem; font-weight: 700; color: var(--accent); }
 header .subtitle { color: var(--subtext); font-size: 0.85rem; }
+header .subtitle strong { color: var(--text); }
+
+.hint { color: var(--subtext); font-size: 0.9rem; margin-bottom: 10px; }
+.gen-output { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
 
 /* --- Panels ---------------------------------------------------------------- */
 .panel {
