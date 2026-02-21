@@ -683,7 +683,7 @@ async function refreshBalanceUI(state) {
 /* ============================================================
    Startup
    ============================================================ */
-window.onload = () => {
+window.addEventListener('load', () => {
   setupEntryPage();
   setupDashboardPage();
-};
+});
