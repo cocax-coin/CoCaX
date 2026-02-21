@@ -3,160 +3,64 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CoXaNa – CoCaX Wallet</title>
+  <title>CoXaNa – All-in-One Wallet</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<div id="app">
+<div id="entry-root" class="app-shell">
 
   <header>
     <div>
       <div class="logo">⬡ CoXaNa</div>
-      <div class="subtitle">CoCaX Browser Wallet &nbsp;·&nbsp; <span id="network-badge">connecting…</span></div>
+      <div class="subtitle">All-in-One Universal Wallet</div>
     </div>
   </header>
 
-  <!-- ==================== SETUP SCREEN ==================== -->
-  <div id="setup-screen">
-    <div class="panel">
-      <h2>Welcome to CoXaNa</h2>
-      <p style="color:var(--subtext);margin-bottom:18px;">
-        Create a new wallet or import an existing one using your 12-word mnemonic phrase.
-      </p>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button class="btn" id="btn-new-wallet">✦ Create New Wallet</button>
-        <button class="btn btn-outline" id="btn-import-wallet">↩ Import Wallet</button>
-      </div>
+  <div class="panel">
+    <h2>Create New Wallet</h2>
+    <p class="hint">Generates a brand new private key and 12-word seed phrase.</p>
+    <div class="form-row">
+      <button class="btn" id="btn-generate">✦ Generate New Wallet</button>
     </div>
-
-    <!-- New wallet flow -->
-    <div id="new-wallet-flow" style="display:none;">
-      <div class="panel">
-        <h2>Your Mnemonic Phrase</h2>
-        <p style="color:var(--subtext);font-size:0.85rem;margin-bottom:12px;">
-          Write these 12 words down and store them safely. They are the <strong>only</strong> way to recover your wallet.
-        </p>
-        <div class="mnemonic-grid" id="mnemonic-display"></div>
-        <div class="form-row" style="margin-top:16px;">
-          <label for="pw-new">Wallet Password (encrypts local storage)</label>
-          <input type="password" id="pw-new" placeholder="Choose a strong password" autocomplete="new-password" />
-          <div class="pw-hint">Min 8 characters. Used to encrypt your key locally.</div>
-        </div>
-        <div style="display:flex;gap:10px;margin-top:12px;">
-          <button class="btn btn-green" id="btn-confirm-new">Confirm &amp; Unlock Wallet</button>
-          <button class="btn btn-outline" id="btn-copy-mnemonic">Copy Phrase</button>
-        </div>
-        <div id="new-wallet-msg"></div>
-      </div>
-    </div>
-
-    <!-- Import wallet flow -->
-    <div id="import-wallet-flow" style="display:none;">
-      <div class="panel">
-        <h2>Import Wallet</h2>
-        <div class="form-row">
-          <label for="import-mnemonic">12-Word Mnemonic Phrase</label>
-          <textarea id="import-mnemonic" placeholder="word1 word2 word3 … word12" rows="3"></textarea>
-        </div>
-        <div class="form-row">
-          <label for="pw-import">Wallet Password</label>
-          <input type="password" id="pw-import" placeholder="Password to encrypt local storage" autocomplete="new-password" />
-        </div>
-        <button class="btn btn-green" id="btn-confirm-import">Import &amp; Unlock</button>
-        <div id="import-msg"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== LOCK SCREEN ==================== -->
-  <div id="lock-screen" style="display:none;">
-    <div class="panel" style="max-width:360px;margin:0 auto;">
-      <div class="lock-icon">🔒</div>
-      <h2 style="text-align:center;margin-bottom:12px;">Wallet Locked</h2>
-      <p>Enter your password to unlock.</p>
+    <div id="generate-output" class="gen-output" style="display:none;">
+      <label>Seed Phrase (12 words)</label>
+      <div class="mnemonic-grid" id="generated-mnemonic"></div>
       <div class="form-row">
-        <input type="password" id="pw-unlock" placeholder="Password" autocomplete="current-password" />
+        <label>Address</label>
+        <div class="info-box" id="generated-address"></div>
       </div>
-      <button class="btn" id="btn-unlock">Unlock</button>
-      <div id="unlock-msg"></div>
-      <hr class="divider" />
-      <button class="btn btn-outline btn-small" id="btn-forget">Forget Wallet</button>
+      <div class="form-row">
+        <label>Private Key (hex)</label>
+        <div class="info-box" id="generated-privkey"></div>
+      </div>
+      <button class="btn btn-green" id="btn-use-generated">Proceed to Dashboard</button>
+      <div id="generate-msg"></div>
     </div>
   </div>
 
-  <!-- ==================== MAIN WALLET ==================== -->
-  <div id="wallet-screen" style="display:none;">
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
-      <button class="tab-btn" data-tab="send">Send</button>
-      <button class="tab-btn" data-tab="receive">Receive</button>
-      <button class="tab-btn" id="btn-lock-wallet" style="margin-left:auto;color:var(--warn);">🔒 Lock</button>
+  <div class="panel">
+    <h2>Import via Seed Phrase</h2>
+    <p class="hint">Enter exactly 12 or 24 words from the approved word list.</p>
+    <div class="form-row">
+      <label for="import-seed">Seed Phrase</label>
+      <textarea id="import-seed" placeholder="word1 word2 ... word12/24" rows="3"></textarea>
     </div>
-
-    <!-- Dashboard -->
-    <div class="tab-pane active" id="tab-dashboard">
-      <div class="panel">
-        <h2>Overview</h2>
-        <div class="stat-grid">
-          <div class="stat-card">
-            <div class="label">Address</div>
-            <div class="value" id="dash-address" style="font-size:0.7rem;font-family:monospace;"></div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Balance</div>
-            <div class="value" id="dash-balance">–</div>
-          </div>
-          <div class="stat-card">
-            <div class="label">Nonce</div>
-            <div class="value" id="dash-nonce">–</div>
-          </div>
-        </div>
-        <div style="margin-top:14px;display:flex;gap:10px;">
-          <button class="btn btn-small btn-outline" id="btn-refresh">⟳ Refresh</button>
-        </div>
-        <div id="dash-msg"></div>
-      </div>
-    </div>
-
-    <!-- Send -->
-    <div class="tab-pane" id="tab-send">
-      <div class="panel">
-        <h2>Send CoX</h2>
-        <div class="form-row">
-          <label for="send-to">Recipient Address</label>
-          <input type="text" id="send-to" placeholder="CoX…" />
-        </div>
-        <div class="form-row">
-          <label for="send-amount">Amount (CoX)</label>
-          <input type="number" id="send-amount" placeholder="0.00" min="0" step="0.01" />
-        </div>
-        <div class="form-row">
-          <label>Transaction Fee</label>
-          <div class="info-box">0.01 CoX (fixed)</div>
-        </div>
-        <button class="btn btn-green" id="btn-send">Sign &amp; Send</button>
-        <div id="send-msg"></div>
-      </div>
-    </div>
-
-    <!-- Receive -->
-    <div class="tab-pane" id="tab-receive">
-      <div class="panel">
-        <h2>Receive CoX</h2>
-        <p style="color:var(--subtext);font-size:0.85rem;margin-bottom:14px;">
-          Share your address to receive CoX tokens.
-        </p>
-        <label>Your Address</label>
-        <div class="info-row">
-          <div class="info-box" id="recv-address"></div>
-          <button class="btn btn-small btn-outline" id="btn-copy-addr">Copy</button>
-        </div>
-        <div id="recv-msg"></div>
-      </div>
-    </div>
+    <button class="btn btn-green" id="btn-import-seed">Import Wallet</button>
+    <div id="import-seed-msg"></div>
   </div>
 
-</div><!-- /#app -->
+  <div class="panel">
+    <h2>Login via Private Key</h2>
+    <p class="hint">Paste a 64-character hex private key.</p>
+    <div class="form-row">
+      <label for="login-privkey">Private Key (hex)</label>
+      <input type="text" id="login-privkey" placeholder="64 hex chars" />
+    </div>
+    <button class="btn btn-green" id="btn-login-privkey">Login</button>
+    <div id="login-privkey-msg"></div>
+  </div>
+
+</div>
 <script src="app.js"></script>
 </body>
 </html>

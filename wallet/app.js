@@ -15,15 +15,11 @@
 /* ============================================================
    Configuration
    ============================================================ */
-const API_BASE = (() => {
-  try {
-    const o = window.location.origin;
-    return o.startsWith('http') ? o : 'http://localhost:8080';
-  } catch (_) { return 'http://localhost:8080'; }
-})();
+const API_BASE = 'http://199.247.18.240';
 
 const FIXED_FEE   = 0.01;
 const STORAGE_KEY = 'cocax_wallet_v1';
+const SESSION_KEY = 'cocax_session_v1';
 const PBKDF2_ITER = 100000;
 const PBKDF2_HASH = 'SHA-256';
 
@@ -69,6 +65,7 @@ const WORDS = [
   'code','coffee','coil','coin','collect','color','column','combine',
   'comfort','common','company','concert','conduct','confirm','congress','connect',
 ];
+const WORD_SET = new Set(WORDS);
 
 /* ============================================================
    Utility helpers
@@ -285,6 +282,11 @@ function generateMnemonic() {
   return words.join(' ');
 }
 
+function validateSeedWords(words) {
+  if (!(words.length === 12 || words.length === 24)) return false;
+  return words.every(w => WORD_SET.has(w));
+}
+
 /* ============================================================
    Wallet state (in-memory session only)
    ============================================================ */
@@ -311,6 +313,26 @@ function saveStorage(data) {
 
 function clearStorage() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+function setSession(data) {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
+}
+
+function getSession() {
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); }
+  catch (_) { return null; }
+}
+
+function clearSession() {
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+function credentialError(msg) {
+  const err = new Error('Invalid Credentials');
+  err.userMessage = 'Invalid Credentials';
+  if (msg) err.userMessage = msg;
+  return err;
 }
 
 /* ============================================================
@@ -381,208 +403,255 @@ async function refreshBalance() {
 }
 
 /* ============================================================
-   Wallet unlock / initialization
+   Wallet builders
    ============================================================ */
-async function unlockWallet(mnemonic) {
+async function buildWalletFromPrivBytes(privBytes) {
+  if (!(privBytes instanceof Uint8Array)) throw credentialError('Private key must be bytes.');
+  if (privBytes.length < 32) throw credentialError('Invalid Credentials');
+  const privateKey = await importPrivKey(privBytes);
+  const { xHex, yHex } = await exportPubKeyHex(privateKey);
+  const address = await deriveAddress(xHex, yHex);
+  return {
+    privateKey,
+    address,
+    pubKeyX: xHex,
+    pubKeyY: yHex,
+    privHex: toHex(privBytes.slice(privBytes.length - 32)),
+    balance: 0,
+    nonce: 0,
+  };
+}
+
+async function deriveWalletFromMnemonic(mnemonicInput) {
+  const normalized = mnemonicInput.trim().toLowerCase().split(/\s+/);
+  if (!validateSeedWords(normalized)) throw credentialError();
+  const mnemonic = normalized.join(' ');
   const privBytes = await mnemonicToPrivBytes(mnemonic);
-  wallet.privateKey = await importPrivKey(privBytes);
-  const { xHex, yHex } = await exportPubKeyHex(wallet.privateKey);
-  wallet.pubKeyX  = xHex;
-  wallet.pubKeyY  = yHex;
-  wallet.address  = await deriveAddress(xHex, yHex);
-  wallet.balance  = 0;
-  wallet.nonce    = 0;
+  const wallet = await buildWalletFromPrivBytes(privBytes);
+  wallet.mnemonic = mnemonic;
+  return wallet;
+}
+
+async function deriveWalletFromPrivHex(privHex) {
+  if (!/^[0-9a-fA-F]{64}$/.test(privHex.trim())) {
+    throw credentialError();
+  }
+  const privBytes = fromHex(privHex.trim());
+  if (privBytes.length !== 32) throw credentialError();
+  return buildWalletFromPrivBytes(privBytes);
 }
 
 /* ============================================================
-   Event handlers – Setup screen
+   Session-aware UI flows
    ============================================================ */
-let pendingMnemonic = '';
+function setupEntryPage() {
+  const root = document.getElementById('entry-root');
+  if (!root) return;
 
-document.getElementById('btn-new-wallet').addEventListener('click', () => {
-  pendingMnemonic = generateMnemonic();
-  const words = pendingMnemonic.split(' ');
-  const grid = document.getElementById('mnemonic-display');
-  grid.innerHTML = words.map((w, i) =>
-    `<div class="mnemonic-word"><span class="idx">${i + 1}.</span>${w}</div>`
-  ).join('');
-  document.getElementById('new-wallet-flow').style.display = '';
-  document.getElementById('import-wallet-flow').style.display = 'none';
-});
+  const genBtn = document.getElementById('btn-generate');
+  const genOut = document.getElementById('generate-output');
+  const genMnemonic = document.getElementById('generated-mnemonic');
+  const genAddr = document.getElementById('generated-address');
+  const genPriv = document.getElementById('generated-privkey');
+  const genUse = document.getElementById('btn-use-generated');
 
-document.getElementById('btn-import-wallet').addEventListener('click', () => {
-  document.getElementById('import-wallet-flow').style.display = '';
-  document.getElementById('new-wallet-flow').style.display = 'none';
-});
+  let pendingWallet = null;
 
-document.getElementById('btn-copy-mnemonic').addEventListener('click', async () => {
-  const ok = await copyText(pendingMnemonic);
-  showMsg('new-wallet-msg', ok ? '✓ Copied to clipboard' : 'Copy failed', ok ? 'success' : 'error');
-});
+  genBtn?.addEventListener('click', async () => {
+    pendingWallet = await deriveWalletFromMnemonic(generateMnemonic());
+    const words = pendingWallet.mnemonic.split(' ');
+    genMnemonic.innerHTML = words.map((w, i) =>
+      `<div class="mnemonic-word"><span class="idx">${i + 1}.</span>${w}</div>`
+    ).join('');
+    genAddr.textContent = pendingWallet.address;
+    genPriv.textContent = pendingWallet.privHex;
+    genOut.style.display = '';
+    showMsg('generate-msg', 'Wallet generated. Save the seed phrase securely.', 'info');
+  });
 
-document.getElementById('btn-confirm-new').addEventListener('click', async () => {
-  const pw = document.getElementById('pw-new').value;
-  if (pw.length < 8) {
-    showMsg('new-wallet-msg', 'Password must be at least 8 characters.', 'error');
+  genUse?.addEventListener('click', () => {
+    if (!pendingWallet) {
+      showMsg('generate-msg', 'Generate a wallet first.', 'error');
+      return;
+    }
+    setSession({
+      privHex: pendingWallet.privHex,
+      address: pendingWallet.address,
+      pubKeyX: pendingWallet.pubKeyX,
+      pubKeyY: pendingWallet.pubKeyY,
+    });
+    window.location.href = 'dashboard.html';
+  });
+
+  document.getElementById('btn-import-seed')?.addEventListener('click', async () => {
+    const seed = document.getElementById('import-seed').value;
+    try {
+      const w = await deriveWalletFromMnemonic(seed);
+      setSession({
+        privHex: w.privHex,
+        address: w.address,
+        pubKeyX: w.pubKeyX,
+        pubKeyY: w.pubKeyY,
+      });
+      window.location.href = 'dashboard.html';
+    } catch (e) {
+      showMsg('import-seed-msg', e.userMessage || e.message || 'Invalid Credentials', 'error');
+    }
+  });
+
+  document.getElementById('btn-login-privkey')?.addEventListener('click', async () => {
+    const pk = document.getElementById('login-privkey').value;
+    try {
+      const w = await deriveWalletFromPrivHex(pk);
+      setSession({
+        privHex: w.privHex,
+        address: w.address,
+        pubKeyX: w.pubKeyX,
+        pubKeyY: w.pubKeyY,
+      });
+      window.location.href = 'dashboard.html';
+    } catch (e) {
+      showMsg('login-privkey-msg', e.userMessage || e.message || 'Invalid Credentials', 'error');
+    }
+  });
+}
+
+function setupDashboardPage() {
+  const root = document.getElementById('dashboard-root');
+  if (!root) return;
+
+  const session = getSession();
+  if (!session || !session.privHex) {
+    window.location.href = 'index.html';
     return;
   }
-  try {
-    await unlockWallet(pendingMnemonic);
-    const encrypted = await encryptMnemonic(pendingMnemonic, pw);
-    saveStorage({ encrypted, address: wallet.address, pubKeyX: wallet.pubKeyX, pubKeyY: wallet.pubKeyY });
-    updateDashboard();
-    showScreen('wallet-screen');
-    refreshBalance();
-  } catch (e) {
-    showMsg('new-wallet-msg', `Error: ${e.message}`, 'error');
-  }
-});
 
-document.getElementById('btn-confirm-import').addEventListener('click', async () => {
-  const mnemonic = document.getElementById('import-mnemonic').value.trim();
-  const pw       = document.getElementById('pw-import').value;
-  const words    = mnemonic.split(/\s+/);
-  if (words.length !== 12) {
-    showMsg('import-msg', 'Please enter exactly 12 words.', 'error');
-    return;
+  const walletState = { ...wallet };
+
+  async function hydrateFromSession() {
+    const built = await deriveWalletFromPrivHex(session.privHex);
+    walletState.privateKey = built.privateKey;
+    walletState.address = built.address;
+    walletState.pubKeyX = built.pubKeyX;
+    walletState.pubKeyY = built.pubKeyY;
+    walletState.balance = 0;
+    walletState.nonce = 0;
+    updateDashboardUI(walletState);
+    await refreshBalanceUI(walletState);
   }
-  if (pw.length < 8) {
-    showMsg('import-msg', 'Password must be at least 8 characters.', 'error');
-    return;
-  }
-  try {
-    await unlockWallet(mnemonic);
-    const encrypted = await encryptMnemonic(mnemonic, pw);
-    saveStorage({ encrypted, address: wallet.address, pubKeyX: wallet.pubKeyX, pubKeyY: wallet.pubKeyY });
-    updateDashboard();
-    showScreen('wallet-screen');
-    refreshBalance();
-  } catch (e) {
-    showMsg('import-msg', `Error: ${e.message}`, 'error');
-  }
-});
+
+  document.getElementById('btn-refresh')?.addEventListener('click', () => refreshBalanceUI(walletState));
+  ['btn-copy-addr', 'btn-copy-addr-top'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const ok = await copyText(walletState.address);
+      showMsg('recv-msg', ok ? '✓ Address copied!' : 'Copy failed', ok ? 'success' : 'error');
+      if (ok) setTimeout(() => showMsg('recv-msg', ''), 2000);
+    });
+  });
+
+  document.getElementById('btn-back')?.addEventListener('click', () => {
+    clearSession();
+    window.location.href = 'index.html';
+  });
+
+  document.getElementById('btn-send')?.addEventListener('click', async () => {
+    const to     = document.getElementById('send-to').value.trim();
+    const amount = parseFloat(document.getElementById('send-amount').value);
+
+    if (!to.startsWith('CoX') || to.length < 10) {
+      showMsg('send-msg', 'Invalid recipient address (must start with CoX).', 'error');
+      return;
+    }
+    if (isNaN(amount) || amount <= 0) {
+      showMsg('send-msg', 'Enter a valid amount.', 'error');
+      return;
+    }
+    if (walletState.balance < amount + FIXED_FEE) {
+      showMsg('send-msg', `Insufficient balance. Need ${(amount + FIXED_FEE).toFixed(8)} CoX.`, 'error');
+      return;
+    }
+    if (!walletState.privateKey) {
+      showMsg('send-msg', 'Wallet is locked.', 'error');
+      return;
+    }
+
+    try {
+      const balData = await fetchBalance(walletState.address);
+      walletState.nonce = balData.nonce || 0;
+      updateDashboardUI(walletState);
+
+      const tx = {
+        from:      walletState.address,
+        to,
+        amount:    Number(amount.toFixed(8)),
+        fee:       FIXED_FEE,
+        nonce:     walletState.nonce + 1,
+        timestamp: Math.floor(Date.now() / 1000),
+        is_coinbase: false,
+      };
+
+      const signedTx = await signTransaction(tx, walletState.privateKey, walletState.pubKeyX, walletState.pubKeyY);
+      const result   = await submitTx(signedTx);
+
+      walletState.nonce += 1;
+      walletState.balance = Math.max(0, walletState.balance - amount - FIXED_FEE);
+      updateDashboardUI(walletState);
+
+      showMsg('send-msg',
+        `✓ Transaction accepted! TX ID: <code style="word-break:break-all">${result.tx_id || '(pending)'}</code><br>Mempool size: ${result.mempool_size}`,
+        'success'
+      );
+      document.getElementById('send-to').value     = '';
+      document.getElementById('send-amount').value = '';
+    } catch (e) {
+      showMsg('send-msg', `Send failed: ${e.message}`, 'error');
+    }
+  });
+
+  hydrateFromSession().catch(err => {
+    console.error(err);
+    clearSession();
+    window.location.href = 'index.html';
+  });
+}
 
 /* ============================================================
-   Event handlers – Lock screen
+   Dashboard helpers
    ============================================================ */
-document.getElementById('btn-unlock').addEventListener('click', async () => {
-  const pw = document.getElementById('pw-unlock').value;
-  const stored = loadStorage();
-  if (!stored) { showMsg('unlock-msg', 'No wallet found.', 'error'); return; }
+function updateDashboardUI(state) {
+  if (document.getElementById('dash-address')) {
+    document.getElementById('dash-address').textContent = state.address;
+  }
+  if (document.getElementById('dash-balance')) {
+    document.getElementById('dash-balance').textContent = `${state.balance.toFixed(4)} CoX`;
+  }
+  if (document.getElementById('dash-nonce')) {
+    document.getElementById('dash-nonce').textContent = state.nonce;
+  }
+  if (document.getElementById('recv-address')) {
+    document.getElementById('recv-address').textContent = state.address;
+  }
+}
+
+async function refreshBalanceUI(state) {
   try {
-    const mnemonic = await decryptMnemonic(stored.encrypted, pw);
-    await unlockWallet(mnemonic);
-    updateDashboard();
-    showScreen('wallet-screen');
-    refreshBalance();
+    const data = await fetchBalance(state.address);
+    state.balance = data.balance || 0;
+    state.nonce   = data.nonce   || 0;
+    updateDashboardUI(state);
+    showMsg('dash-msg', '✓ Balance refreshed', 'success');
+    setTimeout(() => showMsg('dash-msg', ''), 2000);
   } catch (e) {
-    showMsg('unlock-msg', 'Incorrect password or corrupted wallet.', 'error');
+    showMsg('dash-msg', `Failed to fetch balance: ${e.message}`, 'error');
   }
-});
-
-document.getElementById('pw-unlock').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('btn-unlock').click();
-});
-
-document.getElementById('btn-forget').addEventListener('click', () => {
-  if (confirm('This will delete your local wallet data. Make sure you have your mnemonic saved!')) {
-    clearStorage();
-    showScreen('setup-screen');
-  }
-});
+}
 
 /* ============================================================
-   Event handlers – Wallet screen
+   Startup
    ============================================================ */
-document.getElementById('btn-lock-wallet').addEventListener('click', () => {
-  wallet.privateKey = null;
-  showScreen('lock-screen');
-});
-
-document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
-  btn.addEventListener('click', () => showTab(btn.dataset.tab));
-});
-
-document.getElementById('btn-refresh').addEventListener('click', refreshBalance);
-
-document.getElementById('btn-copy-addr').addEventListener('click', async () => {
-  const ok = await copyText(wallet.address);
-  showMsg('recv-msg', ok ? '✓ Address copied!' : 'Copy failed', ok ? 'success' : 'error');
-  if (ok) setTimeout(() => showMsg('recv-msg', ''), 2000);
-});
-
-document.getElementById('btn-send').addEventListener('click', async () => {
-  const to     = document.getElementById('send-to').value.trim();
-  const amount = parseFloat(document.getElementById('send-amount').value);
-
-  if (!to.startsWith('CoX') || to.length < 10) {
-    showMsg('send-msg', 'Invalid recipient address (must start with CoX).', 'error');
-    return;
-  }
-  if (isNaN(amount) || amount <= 0) {
-    showMsg('send-msg', 'Enter a valid amount.', 'error');
-    return;
-  }
-  if (wallet.balance < amount + FIXED_FEE) {
-    showMsg('send-msg', `Insufficient balance. Need ${(amount + FIXED_FEE).toFixed(8)} CoX.`, 'error');
-    return;
-  }
-  if (!wallet.privateKey) {
-    showMsg('send-msg', 'Wallet is locked.', 'error');
-    return;
-  }
-
-  try {
-    // Fetch latest nonce before sending.
-    const balData = await fetchBalance(wallet.address);
-    wallet.nonce = balData.nonce || 0;
-    updateDashboard();
-
-    const tx = {
-      from:      wallet.address,
-      to,
-      amount:    Number(amount.toFixed(8)),
-      fee:       FIXED_FEE,
-      nonce:     wallet.nonce + 1,
-      timestamp: Math.floor(Date.now() / 1000),
-      is_coinbase: false,
-    };
-
-    const signedTx = await signTransaction(tx, wallet.privateKey, wallet.pubKeyX, wallet.pubKeyY);
-    const result   = await submitTx(signedTx);
-
-    wallet.nonce += 1;
-    wallet.balance = Math.max(0, wallet.balance - amount - FIXED_FEE);
-    updateDashboard();
-
-    showMsg('send-msg',
-      `✓ Transaction accepted! TX ID: <code style="word-break:break-all">${result.tx_id || '(pending)'}</code><br>Mempool size: ${result.mempool_size}`,
-      'success'
-    );
-    document.getElementById('send-to').value     = '';
-    document.getElementById('send-amount').value = '';
-  } catch (e) {
-    showMsg('send-msg', `Send failed: ${e.message}`, 'error');
-  }
-});
-
-/* ============================================================
-   Startup: decide which screen to show
-   ============================================================ */
-(function init() {
-  const stored = loadStorage();
-  if (!stored) {
-    showScreen('setup-screen');
-  } else if (wallet.privateKey) {
-    updateDashboard();
-    showScreen('wallet-screen');
-  } else {
-    showScreen('lock-screen');
-  }
-
-  // Populate receive address from stored data (no password needed).
-  if (stored && stored.address) {
-    document.getElementById('recv-address').textContent = stored.address;
-    document.getElementById('dash-address').textContent = stored.address;
-  }
+(() => {
+  setupEntryPage();
+  setupDashboardPage();
 })();
