@@ -16,7 +16,7 @@ const (
 	BaseBlockReward   = 3.3
 	HalvingInterval   = uint64(1_000_000)
 	FixedFee          = 0.01
-	FounderAddress    = "CoX_FOUNDER_PLACEHOLDER_UPDATE_ME"
+	FounderAddress    = "0x1111111111111111111111111111111111111111"
 	FounderAllocation = 3_300_000.0
 	TargetBlockTime   = 30 * time.Second
 )
