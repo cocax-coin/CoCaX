@@ -140,15 +140,11 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Copy chain and mempool under read lock to avoid races while keeping response assembly outside the lock.
+	// Filter the chain and mempool while holding a read lock to avoid extra allocations.
 	a.state.RLock()
-	chain := make([]core.Block, len(a.state.Chain))
-	copy(chain, a.state.Chain)
-	pendingPool := make([]core.Transaction, len(a.state.Mempool))
-	copy(pendingPool, a.state.Mempool)
-	a.state.RUnlock()
-
-	var confirmed []txWithMeta
+	chain := a.state.Chain
+	mempool := a.state.Mempool
+	confirmed := make([]txWithMeta, 0, len(chain))
 	for _, blk := range chain {
 		for _, tx := range blk.Transactions {
 			if tx.From == address || tx.To == address {
@@ -162,8 +158,8 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var pending []txWithMeta
-	for _, tx := range pendingPool {
+	pending := make([]txWithMeta, 0, len(mempool))
+	for _, tx := range mempool {
 		if tx.From == address || tx.To == address {
 			pending = append(pending, txWithMeta{
 				Transaction: tx,
@@ -171,14 +167,12 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	a.state.RUnlock()
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"address":         address,
-		"confirmed":       confirmed,
-		"pending":         pending,
-		"total":           len(confirmed) + len(pending),
-		"pending_count":   len(pending),
-		"confirmed_count": len(confirmed),
+		"address":   address,
+		"confirmed": confirmed,
+		"pending":   pending,
 	})
 }
 

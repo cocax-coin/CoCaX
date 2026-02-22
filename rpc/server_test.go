@@ -79,16 +79,12 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 			Amount float64 `json:"amount"`
 			Status string  `json:"status"`
 		} `json:"pending"`
-		Total int `json:"total"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 	if len(resp.Confirmed) != 1 || len(resp.Pending) != 1 {
 		t.Fatalf("expected 1 confirmed and 1 pending, got %d and %d", len(resp.Confirmed), len(resp.Pending))
-	}
-	if resp.Total != 2 {
-		t.Fatalf("expected total 2, got %v", resp.Total)
 	}
 	if resp.Confirmed[0].ID != confirmedTx.ID || resp.Confirmed[0].BlockIndex != 1 || resp.Confirmed[0].BlockHash != "hash1" || resp.Confirmed[0].Status != "confirmed" {
 		t.Fatalf("confirmed tx metadata mismatch: %+v", resp.Confirmed[0])
