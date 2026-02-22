@@ -46,10 +46,10 @@ func TestHandleBalanceAliases(t *testing.T) {
 }
 
 func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
-	testWalletAddr := "CoX2222222222222222222222222222222222222222"
-	testCounterpartyAddr := "CoX3333333333333333333333333333333333333333"
-	confirmedTx := core.Transaction{ID: "tx1", From: testWalletAddr, To: testCounterpartyAddr, Amount: 1}
-	pendingTx := core.Transaction{ID: "tx2", From: testCounterpartyAddr, To: testWalletAddr, Amount: 2}
+	testAccountAddr := "CoX2222222222222222222222222222222222222222"
+	testOtherAddr := "CoX3333333333333333333333333333333333333333"
+	confirmedTx := core.Transaction{ID: "tx1", From: testAccountAddr, To: testOtherAddr, Amount: 1}
+	pendingTx := core.Transaction{ID: "tx2", From: testOtherAddr, To: testAccountAddr, Amount: 2}
 
 	state := &core.ChainState{
 		Chain: []core.Block{{Index: 1, Hash: "hash1", Transactions: []core.Transaction{confirmedTx}}},
@@ -60,7 +60,7 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 	}
 	api := NewServer(state, "", "")
 
-	req := httptest.NewRequest(http.MethodGet, "/transactions/"+testWalletAddr, nil)
+	req := httptest.NewRequest(http.MethodGet, "/transactions/"+testAccountAddr, nil)
 	rr := httptest.NewRecorder()
 	api.Router().ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {

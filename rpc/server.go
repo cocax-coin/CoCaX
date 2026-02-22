@@ -21,8 +21,8 @@ type Server struct {
 }
 
 // smallSliceHint provides a modest preallocation to reduce reallocations when
-// building transaction response lists.
-const smallSliceHint = 10
+// building transaction response lists. Tuned for typical wallet dashboard usage.
+const smallSliceHint = 32
 
 type txWithMeta struct {
 	core.Transaction
