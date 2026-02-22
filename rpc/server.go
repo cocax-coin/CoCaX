@@ -75,7 +75,8 @@ func jsonResponse(w http.ResponseWriter, status int, v interface{}) {
 
 // extractAddress pulls an address from the query string (?address=) first, then
 // falls back to trimming one of the provided path prefixes (e.g. /balance/{addr}).
-// It returns an empty string when no address could be extracted.
+// It returns an empty string when no address could be extracted. Callers are
+// responsible for validating the returned address.
 func extractAddress(r *http.Request, prefixes ...string) string {
 	// Prefer explicit query parameter.
 	if addr := strings.TrimSpace(r.URL.Query().Get("address")); addr != "" {
