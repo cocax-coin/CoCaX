@@ -144,7 +144,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	a.state.RLock()
 	chain := a.state.Chain
 	mempool := a.state.Mempool
-	confirmed := make([]txWithMeta, 0, len(chain))
+	var confirmed []txWithMeta
 	for _, blk := range chain {
 		for _, tx := range blk.Transactions {
 			if tx.From == address || tx.To == address {
@@ -158,7 +158,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pending := make([]txWithMeta, 0, len(mempool))
+	var pending []txWithMeta
 	for _, tx := range mempool {
 		if tx.From == address || tx.To == address {
 			pending = append(pending, txWithMeta{

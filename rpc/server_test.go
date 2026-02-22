@@ -86,10 +86,25 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 	if len(resp.Confirmed) != 1 || len(resp.Pending) != 1 {
 		t.Fatalf("expected 1 confirmed and 1 pending, got %d and %d", len(resp.Confirmed), len(resp.Pending))
 	}
-	if resp.Confirmed[0].ID != confirmedTx.ID || resp.Confirmed[0].BlockIndex != 1 || resp.Confirmed[0].BlockHash != "hash1" || resp.Confirmed[0].Status != "confirmed" {
-		t.Fatalf("confirmed tx metadata mismatch: %+v", resp.Confirmed[0])
+	if resp.Confirmed[0].ID != confirmedTx.ID {
+		t.Fatalf("confirmed tx id mismatch: %+v", resp.Confirmed[0])
 	}
-	if resp.Pending[0].ID != pendingTx.ID || resp.Pending[0].Status != "pending" || resp.Pending[0].Amount != pendingTx.Amount {
-		t.Fatalf("pending tx mismatch: %+v", resp.Pending[0])
+	if resp.Confirmed[0].BlockIndex != 1 {
+		t.Fatalf("confirmed tx block index mismatch: %+v", resp.Confirmed[0])
+	}
+	if resp.Confirmed[0].BlockHash != "hash1" {
+		t.Fatalf("confirmed tx block hash mismatch: %+v", resp.Confirmed[0])
+	}
+	if resp.Confirmed[0].Status != "confirmed" {
+		t.Fatalf("confirmed tx status mismatch: %+v", resp.Confirmed[0])
+	}
+	if resp.Pending[0].ID != pendingTx.ID {
+		t.Fatalf("pending tx id mismatch: %+v", resp.Pending[0])
+	}
+	if resp.Pending[0].Status != "pending" {
+		t.Fatalf("pending tx status mismatch: %+v", resp.Pending[0])
+	}
+	if resp.Pending[0].Amount != pendingTx.Amount {
+		t.Fatalf("pending tx amount mismatch: %+v", resp.Pending[0])
 	}
 }
