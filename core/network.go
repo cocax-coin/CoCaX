@@ -85,6 +85,7 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 	hello := P2PMessage{Type: "hello"}
 	helloPayload, _ := json.Marshal(map[string]interface{}{
 		"node":         "CoCaX-Core",
+		"chain_id":     ChainID,
 		"chain_length": chainLen,
 	})
 	hello.Payload = helloPayload
@@ -173,6 +174,7 @@ func (n *P2PNode) connectPeer(addr string) {
 	reply := P2PMessage{Type: "hello"}
 	replyPayload, _ := json.Marshal(map[string]interface{}{
 		"node":         "CoCaX-Core",
+		"chain_id":     ChainID,
 		"chain_length": chainLen,
 	})
 	reply.Payload = replyPayload

@@ -40,6 +40,7 @@ func main() {
 
 	log.Printf("[%s] Starting CoCaX-Core node...", core.CoinName)
 	log.Printf("[%s] Data directory: %s", core.CoinName, *dataDir)
+	log.Printf("[%s] Chain ID: %d", core.CoinName, core.ChainID)
 	if founderAddr != core.FounderAddress {
 		log.Printf("[%s] Founder address: %s", core.CoinName, founderAddr)
 	}

@@ -10,6 +10,7 @@ const (
 	CoinName          = "CoCaX"
 	Ticker            = "CoX"
 	AddressPrefix     = "CoX"
+	ChainID           = uint64(11121633)
 	GenesisMessage    = "For united peoples working together. To hell with geography and borders, let us unite!"
 	TotalSupplyCap    = 33_000_000.0
 	BaseBlockReward   = 3.3
