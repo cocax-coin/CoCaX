@@ -73,9 +73,9 @@ func jsonResponse(w http.ResponseWriter, status int, v interface{}) {
 	}
 }
 
-// extractAddress pulls an address from the query string (?address=) or by
-// trimming one of the provided path prefixes. It returns an empty string when
-// no address could be extracted.
+// extractAddress pulls an address from the query string (?address=) first, then
+// falls back to trimming one of the provided path prefixes (e.g. /balance/{addr}).
+// It returns an empty string when no address could be extracted.
 func extractAddress(r *http.Request, prefixes ...string) string {
 	// Prefer explicit query parameter.
 	if addr := strings.TrimSpace(r.URL.Query().Get("address")); addr != "" {
@@ -147,7 +147,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	a.state.RLock()
 	chain := a.state.Chain
 	mempool := a.state.Mempool
-	var confirmed []txWithMeta
+	confirmed := make([]txWithMeta, 0, 10)
 	for _, blk := range chain {
 		for _, tx := range blk.Transactions {
 			if tx.From == address || tx.To == address {
@@ -161,7 +161,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var pending []txWithMeta
+	pending := make([]txWithMeta, 0, 10)
 	for _, tx := range mempool {
 		if tx.From == address || tx.To == address {
 			pending = append(pending, txWithMeta{
