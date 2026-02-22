@@ -1,4 +1,4 @@
-package main
+package rpc_test
 
 import (
 	"bytes"
@@ -7,16 +7,19 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"cocax-core/core"
+	"cocax-core/rpc"
 )
 
-func newTestServer(t *testing.T) (*httptest.Server, *ChainState) {
+func newTestServer(t *testing.T) (*httptest.Server, *core.ChainState) {
 	t.Helper()
 	dir := t.TempDir()
-	cs, err := LoadState(dir, "")
+	cs, err := core.LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
-	api := NewAPIServer(cs, dir, FounderAddress)
+	api := rpc.NewServer(cs, dir, core.FounderAddress)
 	srv := httptest.NewServer(api.Router())
 	t.Cleanup(srv.Close)
 	return srv, cs
@@ -89,11 +92,9 @@ func TestBalanceEndpoint_KnownAddress(t *testing.T) {
 	srv, cs := newTestServer(t)
 
 	// Fund a fresh account directly.
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
-	cs.mu.Lock()
-	cs.Accounts[addr] = &Account{Address: addr, Balance: 42.5, Nonce: 3}
-	cs.mu.Unlock()
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 42.5, Nonce: 3}
 
 	resp, err := http.Get(srv.URL + "/balance/" + addr)
 	if err != nil {
@@ -129,7 +130,7 @@ func TestBlocksEndpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
-	var blocks []Block
+	var blocks []core.Block
 	if err := json.NewDecoder(resp.Body).Decode(&blocks); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestBlocksEndpoint(t *testing.T) {
 
 // ---- /tx/submit -------------------------------------------------------------
 
-func submitTx(t *testing.T, srvURL string, tx Transaction) (*http.Response, error) {
+func submitTx(t *testing.T, srvURL string, tx core.Transaction) (*http.Response, error) {
 	t.Helper()
 	body, err := json.Marshal(tx)
 	if err != nil {
@@ -152,21 +153,19 @@ func submitTx(t *testing.T, srvURL string, tx Transaction) (*http.Response, erro
 func TestTxSubmit_ValidTx(t *testing.T) {
 	srv, cs := newTestServer(t)
 
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
-	cs.mu.Lock()
-	cs.Accounts[addr] = &Account{Address: addr, Balance: 10.0, Nonce: 0}
-	cs.mu.Unlock()
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 10.0, Nonce: 0}
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
 	resp, err := submitTx(t, srv.URL, tx)
 	if err != nil {
@@ -187,17 +186,15 @@ func TestTxSubmit_ValidTx(t *testing.T) {
 func TestTxSubmit_MissingSignature(t *testing.T) {
 	srv, cs := newTestServer(t)
 
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
-	cs.mu.Lock()
-	cs.Accounts[addr] = &Account{Address: addr, Balance: 10.0, Nonce: 0}
-	cs.mu.Unlock()
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 10.0, Nonce: 0}
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 		// No signature fields set.
@@ -217,13 +214,11 @@ func TestTxSubmit_MissingSignature(t *testing.T) {
 func TestTxSubmit_WrongFee(t *testing.T) {
 	srv, cs := newTestServer(t)
 
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
-	cs.mu.Lock()
-	cs.Accounts[addr] = &Account{Address: addr, Balance: 10.0, Nonce: 0}
-	cs.mu.Unlock()
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 10.0, Nonce: 0}
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
@@ -231,7 +226,7 @@ func TestTxSubmit_WrongFee(t *testing.T) {
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
 	resp, err := submitTx(t, srv.URL, tx)
 	if err != nil {
@@ -247,21 +242,19 @@ func TestTxSubmit_WrongFee(t *testing.T) {
 func TestTxSubmit_NonceMismatch(t *testing.T) {
 	srv, cs := newTestServer(t)
 
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
-	cs.mu.Lock()
-	cs.Accounts[addr] = &Account{Address: addr, Balance: 10.0, Nonce: 0}
-	cs.mu.Unlock()
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 10.0, Nonce: 0}
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     99, // should be 1
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
 	resp, err := submitTx(t, srv.URL, tx)
 	if err != nil {
@@ -276,7 +269,7 @@ func TestTxSubmit_NonceMismatch(t *testing.T) {
 
 func TestTxSubmit_CoinbaseRejected(t *testing.T) {
 	srv, _ := newTestServer(t)
-	tx := Transaction{
+	tx := core.Transaction{
 		From:       "coinbase",
 		To:         "CoXsomeone",
 		Amount:     3.3,

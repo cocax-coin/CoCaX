@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"crypto/ecdsa"
@@ -88,6 +88,7 @@ func VerifyTransaction(tx *Transaction) error {
 	if err != nil {
 		return fmt.Errorf("address derivation failed: %w", err)
 	}
+	// Verify address matches the derived address.
 	if derivedAddr != tx.From {
 		return fmt.Errorf("address mismatch: derived %s, tx.from %s", derivedAddr, tx.From)
 	}
@@ -158,4 +159,9 @@ func BlockReward(blockIndex uint64) float64 {
 // floatEqual compares two float64 values within a small epsilon.
 func floatEqual(a, b float64) bool {
 	return math.Abs(a-b) < 1e-9
+}
+
+// FloatEqual is an exported wrapper around floatEqual for other packages.
+func FloatEqual(a, b float64) bool {
+	return floatEqual(a, b)
 }
