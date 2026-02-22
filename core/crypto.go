@@ -88,7 +88,6 @@ func VerifyTransaction(tx *Transaction) error {
 	if err != nil {
 		return fmt.Errorf("address derivation failed: %w", err)
 	}
-	// Verify address matches the derived address.
 	if derivedAddr != tx.From {
 		return fmt.Errorf("address mismatch: derived %s, tx.from %s", derivedAddr, tx.From)
 	}
@@ -164,4 +163,9 @@ func floatEqual(a, b float64) bool {
 // FloatEqual is an exported wrapper around floatEqual for other packages.
 func FloatEqual(a, b float64) bool {
 	return floatEqual(a, b)
+}
+
+// PadTo32 is an exported helper that left-pads a byte slice to 32 bytes.
+func PadTo32(b []byte) []byte {
+	return padTo32(b)
 }

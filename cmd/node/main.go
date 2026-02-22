@@ -92,8 +92,8 @@ func printGeneratedAddress() {
 	}
 	addr := core.DeriveAddress(&priv.PublicKey)
 	privHex := hex.EncodeToString(priv.D.Bytes())
-	xHex := hex.EncodeToString(padTo32(priv.PublicKey.X.Bytes()))
-	yHex := hex.EncodeToString(padTo32(priv.PublicKey.Y.Bytes()))
+	xHex := hex.EncodeToString(core.PadTo32(priv.PublicKey.X.Bytes()))
+	yHex := hex.EncodeToString(core.PadTo32(priv.PublicKey.Y.Bytes()))
 
 	fmt.Println()
 	fmt.Println("================================================================")
@@ -115,14 +115,4 @@ func printGeneratedAddress() {
 	fmt.Println("  SECURITY: Keep your private key and mnemonic phrase offline!")
 	fmt.Println("================================================================")
 	fmt.Println()
-}
-
-// padTo32 left-pads a byte slice to exactly 32 bytes (helper for printing keys).
-func padTo32(b []byte) []byte {
-	if len(b) >= 32 {
-		return b[len(b)-32:]
-	}
-	padded := make([]byte, 32)
-	copy(padded[32-len(b):], b)
-	return padded
 }
