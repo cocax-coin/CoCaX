@@ -35,6 +35,7 @@ type Transaction struct {
 	SigS       string  `json:"sig_s,omitempty"`
 	IsCoinbase bool    `json:"is_coinbase"`
 	Memo       string  `json:"memo,omitempty"`
+	Sequence   uint64  `json:"sequence,omitempty"`
 }
 
 // TimedCommitment represents a lightweight PoTC commitment stored in a block.
@@ -48,15 +49,24 @@ type TimedCommitment struct {
 
 // Block represents a block in the CoCaX chain.
 type Block struct {
-	Index        uint64          `json:"index"`
-	PrevHash     string          `json:"prev_hash"`
-	Hash         string          `json:"hash"`
-	Timestamp    int64           `json:"timestamp"`
-	Transactions []Transaction   `json:"transactions"`
-	Commitment   TimedCommitment `json:"commitment"`
-	Reward       float64         `json:"reward"`
-	Miner        string          `json:"miner"`
-	Memo         string          `json:"memo,omitempty"`
+	Index         uint64              `json:"index"`
+	PrevHash      string              `json:"prev_hash"`
+	Hash          string              `json:"hash"`
+	Timestamp     int64               `json:"timestamp"`
+	Transactions  []Transaction       `json:"transactions"`
+	Commitment    TimedCommitment     `json:"commitment"`
+	Reward        float64             `json:"reward"`
+	Miner         string              `json:"miner"`
+	Memo          string              `json:"memo,omitempty"`
+	Verifications []BlockVerification `json:"verifications,omitempty"`
+	CrossSigs     map[string]string   `json:"cross_sigs,omitempty"` // optional peer signatures for PoVS
+}
+
+// BlockVerification captures a peer's validation vote for a block.
+type BlockVerification struct {
+	Peer     string `json:"peer"`
+	Accepted bool   `json:"accepted"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // Account represents the on-chain state for a single address.

@@ -3,6 +3,7 @@ package core_test
 import (
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,6 +233,51 @@ func TestMempool_InsufficientBalance(t *testing.T) {
 	}
 }
 
+// cloneChainStateValues is a test helper that deep copies the chain state for
+// isolated verification scenarios.
+func cloneChainStateValues(src *core.ChainState) *core.ChainState {
+	dst := &core.ChainState{
+		Accounts:     make(map[string]*core.Account, len(src.Accounts)),
+		Mempool:      append([]core.Transaction{}, src.Mempool...),
+		Chain:        append([]core.Block{}, src.Chain...),
+		MintedSupply: src.MintedSupply,
+	}
+	for addr, acc := range src.Accounts {
+		if acc == nil {
+			continue
+		}
+		c := *acc
+		dst.Accounts[addr] = &c
+	}
+	return dst
+}
+
+func TestCloneChainStateValuesDeepCopy(t *testing.T) {
+	cs := &core.ChainState{
+		Accounts: map[string]*core.Account{
+			"addr": {Address: "addr", Balance: 5, Nonce: 1},
+		},
+		Mempool:      []core.Transaction{{ID: "tx1"}},
+		Chain:        []core.Block{{Index: 0, Hash: "hash0"}},
+		MintedSupply: 10,
+	}
+
+	clone := cloneChainStateValues(cs)
+	if clone.Accounts["addr"] == cs.Accounts["addr"] {
+		t.Fatalf("accounts map was not deep copied")
+	}
+	clone.Accounts["addr"].Balance = 50
+	if cs.Accounts["addr"].Balance == 50 {
+		t.Fatalf("mutating clone account affected original")
+	}
+	if len(clone.Mempool) != len(cs.Mempool) || len(clone.Chain) != len(cs.Chain) {
+		t.Fatalf("mempool or chain lengths differ after clone")
+	}
+	if clone.MintedSupply != cs.MintedSupply {
+		t.Fatalf("minted supply not copied: got %.2f want %.2f", clone.MintedSupply, cs.MintedSupply)
+	}
+}
+
 // ---- Genesis / founder allocation -------------------------------------------
 
 func TestFounderAllocationAtGenesis(t *testing.T) {
@@ -301,6 +347,170 @@ func TestMineBlock(t *testing.T) {
 	expectedReward := core.BlockReward(1)
 	if !core.FloatEqual(minerAcc.Balance, expectedReward) {
 		t.Errorf("miner balance: want %.8f, got %.8f", expectedReward, minerAcc.Balance)
+	}
+}
+
+func TestCreateBlockTemplateAssignsSequences(t *testing.T) {
+	dir := t.TempDir()
+	cs, _ := core.LoadState(dir, "")
+
+	minerPriv, _ := core.GenerateKeyPair()
+	minerAddr := core.DeriveAddress(&minerPriv.PublicKey)
+
+	senderPriv, _ := core.GenerateKeyPair()
+	senderAddr := core.DeriveAddress(&senderPriv.PublicKey)
+	cs.Accounts[senderAddr] = &core.Account{Address: senderAddr, Balance: 10, Nonce: 0}
+
+	api := rpc.NewServer(cs, dir, minerAddr)
+	tx1 := core.Transaction{
+		From:      senderAddr,
+		To:        "CoXrecipient000000000000000000000000000000000",
+		Amount:    1.0,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Unix(),
+	}
+	_ = core.SignTransaction(&tx1, senderPriv)
+	if err := api.ValidateAndAddTx(&tx1); err != nil {
+		t.Fatalf("ValidateAndAddTx tx1: %v", err)
+	}
+
+	cs.Accounts[senderAddr].Nonce = 1
+
+	tx2 := core.Transaction{
+		From:      senderAddr,
+		To:        "CoXrecipient000000000000000000000000000000001",
+		Amount:    1.5,
+		Fee:       core.FixedFee,
+		Nonce:     2,
+		Timestamp: time.Now().Unix(),
+	}
+	_ = core.SignTransaction(&tx2, senderPriv)
+	if err := api.ValidateAndAddTx(&tx2); err != nil {
+		t.Fatalf("ValidateAndAddTx tx2: %v", err)
+	}
+
+	block, err := core.CreateBlockTemplate(cs, minerAddr)
+	if err != nil {
+		t.Fatalf("CreateBlockTemplate: %v", err)
+	}
+
+	if len(block.Transactions) != 3 {
+		t.Fatalf("expected 3 transactions (coinbase + 2), got %d", len(block.Transactions))
+	}
+	if block.Transactions[0].Sequence != 0 || !block.Transactions[0].IsCoinbase {
+		t.Fatalf("expected coinbase at sequence 0, got seq=%d coinbase=%v", block.Transactions[0].Sequence, block.Transactions[0].IsCoinbase)
+	}
+	if block.Transactions[1].Sequence != 1 || block.Transactions[2].Sequence != 2 {
+		t.Fatalf("unexpected sequences: got %d and %d", block.Transactions[1].Sequence, block.Transactions[2].Sequence)
+	}
+}
+
+func TestAddBlockParallelVerification(t *testing.T) {
+	dir := t.TempDir()
+	cs, _ := core.LoadState(dir, "")
+
+	minerPriv, _ := core.GenerateKeyPair()
+	minerAddr := core.DeriveAddress(&minerPriv.PublicKey)
+
+	senderPriv, _ := core.GenerateKeyPair()
+	senderAddr := core.DeriveAddress(&senderPriv.PublicKey)
+	cs.Accounts[senderAddr] = &core.Account{Address: senderAddr, Balance: 10, Nonce: 0}
+
+	tx := core.Transaction{
+		From:      senderAddr,
+		To:        "CoXrecipient000000000000000000000000000000000",
+		Amount:    1.0,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Unix(),
+	}
+	_ = core.SignTransaction(&tx, senderPriv)
+	api := rpc.NewServer(cs, dir, minerAddr)
+	if err := api.ValidateAndAddTx(&tx); err != nil {
+		t.Fatalf("ValidateAndAddTx: %v", err)
+	}
+
+	block, err := core.CreateBlockTemplate(cs, minerAddr)
+	if err != nil {
+		t.Fatalf("CreateBlockTemplate: %v", err)
+	}
+
+	clone := cloneChainStateValues(cs)
+
+	peerVerifierA := func(b *core.Block) error { return core.VerifyBlock(cs, b) }
+	peerVerifierB := func(b *core.Block) error { return core.VerifyBlock(clone, b) }
+	if err := core.AddBlock(cs, block, dir, peerVerifierA, peerVerifierB); err != nil {
+		t.Fatalf("AddBlock with parallel verifiers: %v", err)
+	}
+
+	cs.RLock()
+	defer cs.RUnlock()
+	if len(cs.Chain) < 2 {
+		t.Fatalf("expected new block to be added, chain length %d", len(cs.Chain))
+	}
+	if len(cs.Mempool) != 0 {
+		t.Fatalf("expected mempool to be cleared, size %d", len(cs.Mempool))
+	}
+}
+
+func TestAddBlockRejectsDuplicateNonceAndPenalises(t *testing.T) {
+	dir := t.TempDir()
+	cs, _ := core.LoadState(dir, "")
+
+	minerPriv, _ := core.GenerateKeyPair()
+	minerAddr := core.DeriveAddress(&minerPriv.PublicKey)
+	cs.Accounts[minerAddr] = &core.Account{Address: minerAddr, Balance: 5, Nonce: 0}
+
+	senderPriv, _ := core.GenerateKeyPair()
+	senderAddr := core.DeriveAddress(&senderPriv.PublicKey)
+	cs.Accounts[senderAddr] = &core.Account{Address: senderAddr, Balance: 5, Nonce: 0}
+
+	block, err := core.CreateBlockTemplate(cs, minerAddr)
+	if err != nil {
+		t.Fatalf("CreateBlockTemplate: %v", err)
+	}
+
+	tx1 := core.Transaction{
+		From:      senderAddr,
+		To:        "CoXdouble0000000000000000000000000000000000",
+		Amount:    1.0,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Unix(),
+		Sequence:  1,
+	}
+	_ = core.SignTransaction(&tx1, senderPriv)
+	tx1.ID = core.TxID(&tx1)
+
+	tx2 := core.Transaction{
+		From:      tx1.From,
+		To:        tx1.To,
+		Amount:    tx1.Amount,
+		Fee:       tx1.Fee,
+		Nonce:     tx1.Nonce,
+		Timestamp: tx1.Timestamp + 1,
+		Sequence:  2,
+	}
+	_ = core.SignTransaction(&tx2, senderPriv)
+	tx2.ID = core.TxID(&tx2)
+
+	block.Transactions = append(block.Transactions, tx1, tx2)
+	block.Hash = core.BlockHash(block)
+
+	startBalance := cs.Accounts[minerAddr].Balance
+	err = core.AddBlock(cs, block, dir)
+	if err == nil {
+		t.Fatal("expected block to be rejected due to double spend")
+	}
+	if !strings.Contains(err.Error(), "nonce mismatch") {
+		t.Fatalf("expected nonce mismatch rejection, got: %v", err)
+	}
+
+	cs.RLock()
+	defer cs.RUnlock()
+	if cs.Accounts[minerAddr].Balance >= startBalance {
+		t.Errorf("expected miner penalty to reduce balance, balance %.4f", cs.Accounts[minerAddr].Balance)
 	}
 }
 
