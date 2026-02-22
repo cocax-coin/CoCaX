@@ -337,8 +337,8 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusMethodNotAllowed, rpcResponse{
 			JSONRPC: "2.0",
 			Error: map[string]interface{}{
-				"code":    -32000,
-				"message": "method not allowed",
+				"code":    -32600,
+				"message": "invalid request: POST required",
 			},
 			ID: nil,
 		})
@@ -351,7 +351,7 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 			JSONRPC: "2.0",
 			Error: map[string]interface{}{
 				"code":    -32700,
-				"message": "parse error",
+				"message": "failed to parse JSON-RPC request",
 			},
 			ID: nil,
 		})
