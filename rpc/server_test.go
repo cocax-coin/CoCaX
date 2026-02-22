@@ -10,7 +10,7 @@ import (
 )
 
 func TestHandleBalanceAliases(t *testing.T) {
-	addr := "CoXtestaddress0000000000000000000000000000000"
+	addr := "CoX1111111111111111111111111111111111111111"
 	state := &core.ChainState{
 		Accounts: map[string]*core.Account{
 			addr: {Address: addr, Balance: 5.5, Nonce: 2},
@@ -35,15 +35,19 @@ func TestHandleBalanceAliases(t *testing.T) {
 		if resp["balance"] != state.Accounts[addr].Balance {
 			t.Fatalf("path %s: balance mismatch, got %v", path, resp["balance"])
 		}
-		if uint64(resp["nonce"].(float64)) != state.Accounts[addr].Nonce {
-			t.Fatalf("path %s: nonce mismatch, got %v", path, resp["nonce"])
+		nonceVal, ok := resp["nonce"].(float64)
+		if !ok {
+			t.Fatalf("path %s: nonce not present or wrong type", path)
+		}
+		if uint64(nonceVal) != state.Accounts[addr].Nonce {
+			t.Fatalf("path %s: nonce mismatch, got %v", path, nonceVal)
 		}
 	}
 }
 
 func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
-	addr := "CoXtxaddr0000000000000000000000000000000000"
-	other := "CoXother00000000000000000000000000000000000"
+	addr := "CoX2222222222222222222222222222222222222222"
+	other := "CoX3333333333333333333333333333333333333333"
 	confirmedTx := core.Transaction{ID: "tx1", From: addr, To: other, Amount: 1}
 	pendingTx := core.Transaction{ID: "tx2", From: other, To: addr, Amount: 2}
 

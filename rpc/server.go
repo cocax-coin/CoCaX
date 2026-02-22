@@ -20,6 +20,13 @@ type Server struct {
 	miner   string
 }
 
+type txWithMeta struct {
+	core.Transaction
+	BlockIndex uint64 `json:"block_index,omitempty"`
+	BlockHash  string `json:"block_hash,omitempty"`
+	Status     string `json:"status"`
+}
+
 // NewServer creates a new RPC server.
 func NewServer(state *core.ChainState, dataDir, miner string) *Server {
 	return &Server{state: state, dataDir: dataDir, miner: miner}
@@ -95,6 +102,10 @@ func (a *Server) handleBalance(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
 		return
 	}
+	if !isValidAddress(address) {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid address"})
+		return
+	}
 	a.state.RLock()
 	acc, ok := a.state.Accounts[address]
 	a.state.RUnlock()
@@ -124,6 +135,10 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
 		return
 	}
+	if !isValidAddress(address) {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid address"})
+		return
+	}
 
 	// Copy chain and mempool under read lock to avoid races while keeping response assembly outside the lock.
 	a.state.RLock()
@@ -132,13 +147,6 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	pendingPool := make([]core.Transaction, len(a.state.Mempool))
 	copy(pendingPool, a.state.Mempool)
 	a.state.RUnlock()
-
-	type txWithMeta struct {
-		core.Transaction
-		BlockIndex uint64 `json:"block_index,omitempty"`
-		BlockHash  string `json:"block_hash,omitempty"`
-		Status     string `json:"status"`
-	}
 
 	confirmed := make([]txWithMeta, 0)
 	for _, blk := range chain {
