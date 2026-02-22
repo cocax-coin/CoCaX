@@ -334,19 +334,35 @@ func balanceToHexWei(balance float64) (string, error) {
 // handleJSONRPC serves POST /rpc (JSON-RPC 2.0) for MetaMask-style compatibility.
 func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		jsonResponse(w, http.StatusMethodNotAllowed, rpcResponse{
+			JSONRPC: "2.0",
+			Error: map[string]interface{}{
+				"code":    -32600,
+				"message": "method not allowed",
+			},
+			ID: nil,
+		})
 		return
 	}
 
 	var req rpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		jsonResponse(w, http.StatusBadRequest, rpcResponse{
+			JSONRPC: "2.0",
+			Error: map[string]interface{}{
+				"code":    -32700,
+				"message": "parse error",
+			},
+			ID: nil,
+		})
 		return
 	}
 
 	res := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 
 	switch req.Method {
+	case "net_version":
+		res.Result = fmt.Sprintf("%d", core.ChainID)
 	case "eth_chainId":
 		res.Result = hexifyUint64(core.ChainID)
 	case "eth_blockNumber":

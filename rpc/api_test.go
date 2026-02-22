@@ -343,6 +343,21 @@ func TestJSONRPC_EthChainID(t *testing.T) {
 	}
 }
 
+func TestJSONRPC_NetVersion(t *testing.T) {
+	srv, _ := newTestServer(t)
+	res := callJSONRPC(t, srv.URL, "net_version", []string{})
+	if len(res.Error) != 0 {
+		t.Fatalf("unexpected error: %s", string(res.Error))
+	}
+	var version string
+	if err := json.Unmarshal(res.Result, &version); err != nil {
+		t.Fatalf("unmarshal net_version: %v", err)
+	}
+	if version != "11121633" {
+		t.Fatalf("net_version mismatch: %s", version)
+	}
+}
+
 func TestJSONRPC_EthBlockNumber(t *testing.T) {
 	srv, _ := newTestServer(t)
 	res := callJSONRPC(t, srv.URL, "eth_blockNumber", []string{})
