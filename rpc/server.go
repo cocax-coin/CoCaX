@@ -337,7 +337,7 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusMethodNotAllowed, rpcResponse{
 			JSONRPC: "2.0",
 			Error: map[string]interface{}{
-				"code":    -32601,
+				"code":    -32600,
 				"message": "method not allowed",
 			},
 			ID: nil,
