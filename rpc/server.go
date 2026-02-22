@@ -20,6 +20,17 @@ type Server struct {
 	miner   string
 }
 
+// smallSliceHint provides a modest preallocation to reduce reallocations when
+// building transaction response lists. Tuned for typical wallet dashboard usage.
+const smallSliceHint = 32
+
+type txWithMeta struct {
+	core.Transaction
+	BlockIndex uint64 `json:"block_index,omitempty"`
+	BlockHash  string `json:"block_hash,omitempty"`
+	Status     string `json:"status"`
+}
+
 // NewServer creates a new RPC server.
 func NewServer(state *core.ChainState, dataDir, miner string) *Server {
 	return &Server{state: state, dataDir: dataDir, miner: miner}
@@ -28,7 +39,15 @@ func NewServer(state *core.ChainState, dataDir, miner string) *Server {
 // Router builds and returns the HTTP handler with CORS middleware applied.
 func (a *Server) Router() http.Handler {
 	mux := http.NewServeMux()
+	// Wallet-friendly aliases (with or without /api prefix).
+	mux.HandleFunc("/balance", a.handleBalance)
 	mux.HandleFunc("/balance/", a.handleBalance)
+	mux.HandleFunc("/api/balance", a.handleBalance)
+	mux.HandleFunc("/api/balance/", a.handleBalance)
+	mux.HandleFunc("/transactions", a.handleTransactions)
+	mux.HandleFunc("/transactions/", a.handleTransactions)
+	mux.HandleFunc("/api/transactions", a.handleTransactions)
+	mux.HandleFunc("/api/transactions/", a.handleTransactions)
 	mux.HandleFunc("/tx/submit", a.handleTxSubmit)
 	mux.HandleFunc("/blocks", a.handleBlocks)
 	mux.HandleFunc("/mine", a.handleMine)
@@ -58,15 +77,41 @@ func jsonResponse(w http.ResponseWriter, status int, v interface{}) {
 	}
 }
 
+// extractAddress pulls an address from the query string (?address=) first, then
+// falls back to trimming one of the provided path prefixes (e.g. /balance/{addr}).
+// It returns an empty string when no address could be extracted. Callers are
+// responsible for validating the returned address.
+func extractAddress(r *http.Request, prefixes ...string) string {
+	// Prefer explicit query parameter.
+	if addr := strings.TrimSpace(r.URL.Query().Get("address")); addr != "" {
+		return addr
+	}
+	path := r.URL.Path
+	for _, p := range prefixes {
+		if strings.HasPrefix(path, p) {
+			addr := strings.TrimPrefix(path, p)
+			addr = strings.TrimPrefix(addr, "/")
+			if addr != "" {
+				return addr
+			}
+		}
+	}
+	return ""
+}
+
 // handleBalance serves GET /balance/{address}.
 func (a *Server) handleBalance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	address := strings.TrimPrefix(r.URL.Path, "/balance/")
+	address := extractAddress(r, "/balance", "/api/balance")
 	if address == "" {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
+		return
+	}
+	if !isValidAddress(address) {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid address"})
 		return
 	}
 	a.state.RLock()
@@ -84,6 +129,58 @@ func (a *Server) handleBalance(w http.ResponseWriter, r *http.Request) {
 		"address": acc.Address,
 		"balance": acc.Balance,
 		"nonce":   acc.Nonce,
+	})
+}
+
+// handleTransactions serves GET /transactions/{address} with pending and confirmed txs.
+func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	address := extractAddress(r, "/transactions", "/api/transactions")
+	if address == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "missing address"})
+		return
+	}
+	if !isValidAddress(address) {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid address"})
+		return
+	}
+
+	// Acquire a read lock to filter the chain and mempool with a consistent view.
+	a.state.RLock()
+	chain := a.state.Chain
+	mempool := a.state.Mempool
+	confirmed := make([]txWithMeta, 0, smallSliceHint)
+	for _, blk := range chain {
+		for _, tx := range blk.Transactions {
+			if tx.From == address || tx.To == address {
+				confirmed = append(confirmed, txWithMeta{
+					Transaction: tx,
+					BlockIndex:  blk.Index,
+					BlockHash:   blk.Hash,
+					Status:      "confirmed",
+				})
+			}
+		}
+	}
+
+	pending := make([]txWithMeta, 0, smallSliceHint)
+	for _, tx := range mempool {
+		if tx.From == address || tx.To == address {
+			pending = append(pending, txWithMeta{
+				Transaction: tx,
+				Status:      "pending",
+			})
+		}
+	}
+	a.state.RUnlock()
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"address":   address,
+		"confirmed": confirmed,
+		"pending":   pending,
 	})
 }
 

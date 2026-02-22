@@ -80,8 +80,8 @@ Base URL: `http://localhost:8080` (default)
 
 CORS is enabled for all origins (`*`). OPTIONS pre-flight returns `204 No Content`.
 
-### GET `/balance/{address}`
-Returns address balance and nonce.
+### GET `/balance/{address}` (aliases: `/balance?address=...`, `/api/balance/...`)
+Returns address balance and nonce (supports both path and `address` query param).
 
 **Example:**
 ```bash
@@ -128,6 +128,9 @@ Submits a signed transaction to the mempool.
 ```json
 {"error":"signature validation failed: missing signature"}
 ```
+
+### GET `/transactions/{address}` (alias: `/api/transactions/...`)
+Returns confirmed and pending transactions for the given address, including block metadata when confirmed.
 
 ### POST `/mine`
 Mines a new block from the current mempool (for development/testing).

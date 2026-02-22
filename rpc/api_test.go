@@ -79,7 +79,7 @@ func TestCORSHeaders_OnGet(t *testing.T) {
 
 func TestBalanceEndpoint_UnknownAddress(t *testing.T) {
 	srv, _ := newTestServer(t)
-	resp, err := http.Get(srv.URL + "/balance/CoXunknown123")
+	resp, err := http.Get(srv.URL + "/balance/CoX0000000000000000000000000000000000000000")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
