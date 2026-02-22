@@ -279,10 +279,15 @@ type rpcRequest struct {
 	ID      interface{}     `json:"id"`
 }
 
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 type rpcResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	Result  interface{} `json:"result,omitempty"`
-	Error   interface{} `json:"error,omitempty"`
+	Error   *rpcError   `json:"error,omitempty"`
 	ID      interface{} `json:"id"`
 }
 
@@ -340,13 +345,19 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 	var req rpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		jsonResponse(w, http.StatusBadRequest, rpcResponse{
+			JSONRPC: "2.0",
+			Error:   &rpcError{Code: -32700, Message: "failed to parse JSON-RPC request"},
+			ID:      nil,
+		})
 		return
 	}
 
 	res := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 
 	switch req.Method {
+	case "net_version":
+		res.Result = fmt.Sprintf("%d", core.ChainID)
 	case "eth_chainId":
 		res.Result = hexifyUint64(core.ChainID)
 	case "eth_blockNumber":
@@ -360,18 +371,12 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	case "eth_getBalance":
 		var params []string
 		if err := json.Unmarshal(req.Params, &params); err != nil || len(params) == 0 {
-			res.Error = map[string]interface{}{
-				"code":    -32602,
-				"message": "invalid params",
-			}
+			res.Error = &rpcError{Code: -32602, Message: "invalid params"}
 			break
 		}
 		address := strings.TrimSpace(params[0])
 		if !isValidAddress(address) {
-			res.Error = map[string]interface{}{
-				"code":    -32602,
-				"message": "invalid address",
-			}
+			res.Error = &rpcError{Code: -32602, Message: "invalid address"}
 			break
 		}
 		a.state.RLock()
@@ -383,51 +388,33 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		a.state.RUnlock()
 		weiHex, err := balanceToHexWei(balance)
 		if err != nil {
-			res.Error = map[string]interface{}{
-				"code":    -32000,
-				"message": err.Error(),
-			}
+			res.Error = &rpcError{Code: -32000, Message: err.Error()}
 			break
 		}
 		res.Result = weiHex
 	case "eth_sendRawTransaction":
 		var params []string
 		if err := json.Unmarshal(req.Params, &params); err != nil || len(params) == 0 {
-			res.Error = map[string]interface{}{
-				"code":    -32602,
-				"message": "invalid params",
-			}
+			res.Error = &rpcError{Code: -32602, Message: "invalid params"}
 			break
 		}
 		rawBytes, err := decodeHexData(params[0])
 		if err != nil {
-			res.Error = map[string]interface{}{
-				"code":    -32602,
-				"message": "invalid raw transaction",
-			}
+			res.Error = &rpcError{Code: -32602, Message: "invalid raw transaction"}
 			break
 		}
 		var tx core.Transaction
 		if err := json.Unmarshal(rawBytes, &tx); err != nil {
-			res.Error = map[string]interface{}{
-				"code":    -32602,
-				"message": "unable to decode transaction",
-			}
+			res.Error = &rpcError{Code: -32602, Message: "unable to decode transaction"}
 			break
 		}
 		if err := a.validateAndAddTx(&tx); err != nil {
-			res.Error = map[string]interface{}{
-				"code":    -32000,
-				"message": err.Error(),
-			}
+			res.Error = &rpcError{Code: -32000, Message: err.Error()}
 			break
 		}
 		res.Result = tx.ID
 	default:
-		res.Error = map[string]interface{}{
-			"code":    -32601,
-			"message": "method not found",
-		}
+		res.Error = &rpcError{Code: -32601, Message: "method not found"}
 	}
 
 	jsonResponse(w, http.StatusOK, res)
