@@ -63,6 +63,12 @@ Total supply is hard-capped at 33,000,000 CoX.
 ### PoTC (Lightweight Proof-of-Timed-Commitment)
 Each block includes a `TimedCommitment` with `validator`, `commit_time`, `reveal_deadline`, `window`, and `nonce`. Block creation is rejected if the reveal deadline has already passed.
 
+### PoVS (Parallel Validation + Slashing)
+- Blocks are verified in parallel by the local node and optional peers (majority vote required).
+- Every mined block records its `verifications` array (peer name, accepted flag, reason).
+- The miner is **slashed** (their reward is burned) if the block is rejected by the majority.
+- Coinbase must appear at `sequence = 0`; other transactions are auto-assigned contiguous `sequence` values when the block template is built (hashing includes `sequence` to lock ordering).
+
 ---
 
 ## HTTP API
@@ -83,7 +89,9 @@ curl http://localhost:8080/balance/CoX_FOUNDER_PLACEHOLDER_UPDATE_ME
 ```
 
 ### GET `/blocks`
-Returns the full blockchain as a JSON array.
+Returns the full blockchain as a JSON array. Blocks now include:
+- `commitment` (PoTC), `verifications` (PoVS votes), and optional `memo`
+- `transactions` entries with `is_coinbase` and `sequence` fields (coinbase is always sequence `0`)
 
 ```bash
 curl http://localhost:8080/blocks
