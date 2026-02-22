@@ -20,6 +20,10 @@ type Server struct {
 	miner   string
 }
 
+// smallSliceHint provides a modest preallocation to reduce reallocations when
+// building transaction response lists.
+const smallSliceHint = 10
+
 type txWithMeta struct {
 	core.Transaction
 	BlockIndex uint64 `json:"block_index,omitempty"`
@@ -148,7 +152,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	a.state.RLock()
 	chain := a.state.Chain
 	mempool := a.state.Mempool
-	confirmed := make([]txWithMeta, 0, 10)
+	confirmed := make([]txWithMeta, 0, smallSliceHint)
 	for _, blk := range chain {
 		for _, tx := range blk.Transactions {
 			if tx.From == address || tx.To == address {
@@ -162,7 +166,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pending := make([]txWithMeta, 0, 10)
+	pending := make([]txWithMeta, 0, smallSliceHint)
 	for _, tx := range mempool {
 		if tx.From == address || tx.To == address {
 			pending = append(pending, txWithMeta{
