@@ -67,9 +67,19 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", rr.Code)
 	}
 	var resp struct {
-		Confirmed []map[string]interface{} `json:"confirmed"`
-		Pending   []map[string]interface{} `json:"pending"`
-		Total     int                      `json:"total"`
+		Confirmed []struct {
+			ID         string  `json:"id"`
+			Amount     float64 `json:"amount"`
+			Status     string  `json:"status"`
+			BlockIndex uint64  `json:"block_index"`
+			BlockHash  string  `json:"block_hash"`
+		} `json:"confirmed"`
+		Pending []struct {
+			ID     string  `json:"id"`
+			Amount float64 `json:"amount"`
+			Status string  `json:"status"`
+		} `json:"pending"`
+		Total int `json:"total"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
@@ -79,5 +89,11 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 	}
 	if resp.Total != 2 {
 		t.Fatalf("expected total 2, got %v", resp.Total)
+	}
+	if resp.Confirmed[0].ID != confirmedTx.ID || resp.Confirmed[0].BlockIndex != 1 || resp.Confirmed[0].BlockHash != "hash1" || resp.Confirmed[0].Status != "confirmed" {
+		t.Fatalf("confirmed tx metadata mismatch: %+v", resp.Confirmed[0])
+	}
+	if resp.Pending[0].ID != pendingTx.ID || resp.Pending[0].Status != "pending" || resp.Pending[0].Amount != pendingTx.Amount {
+		t.Fatalf("pending tx mismatch: %+v", resp.Pending[0])
 	}
 }
