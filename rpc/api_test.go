@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -353,7 +354,7 @@ func TestJSONRPC_NetVersion(t *testing.T) {
 	if err := json.Unmarshal(res.Result, &version); err != nil {
 		t.Fatalf("unmarshal net_version: %v", err)
 	}
-	if version != "11121633" {
+	if version != fmt.Sprintf("%d", core.ChainID) {
 		t.Fatalf("net_version mismatch: %s", version)
 	}
 }
