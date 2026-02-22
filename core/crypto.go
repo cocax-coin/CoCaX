@@ -132,7 +132,7 @@ func VerifyTransaction(tx *Transaction) error {
 func BlockHash(b *Block) string {
 	data := fmt.Sprintf("%d|%s|%d|%s|%.8f|%s", b.Index, b.PrevHash, b.Timestamp, b.Miner, b.Reward, b.Memo)
 	for _, tx := range b.Transactions {
-		data += "|" + tx.ID
+		data += fmt.Sprintf("|%d:%s", tx.Sequence, tx.ID)
 	}
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])

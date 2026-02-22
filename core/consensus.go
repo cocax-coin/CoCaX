@@ -3,28 +3,151 @@ package core
 import (
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
-// MineBlock builds and commits a new block from the current mempool.
-// It applies coinbase reward (respecting supply cap and halving) and executes
-// all pending mempool transactions against the account state.
-func MineBlock(state *ChainState, miner, dataDir string) (*Block, error) {
-	state.mu.Lock()
-	defer state.mu.Unlock()
+// BlockVerifier represents a remote (or local) verifier used for PoVS voting.
+// Implementations must treat the provided block as read-only.
+type BlockVerifier func(*Block) error
 
-	if len(state.Chain) == 0 {
-		return nil, fmt.Errorf("no genesis block found")
+type verificationSnapshot struct {
+	lastBlock    Block
+	mintedSupply float64
+	accounts     map[string]Account
+}
+
+// cloneAccountValues makes value copies of accounts to allow isolated
+// verification simulations without mutating shared state.
+func cloneAccountValues(src map[string]*Account) map[string]Account {
+	dst := make(map[string]Account, len(src))
+	for addr, acc := range src {
+		if acc == nil {
+			continue
+		}
+		dst[addr] = *acc
+	}
+	return dst
+}
+
+func cloneAccountValueMap(src map[string]Account) map[string]Account {
+	dst := make(map[string]Account, len(src))
+	for addr, acc := range src {
+		dst[addr] = acc
+	}
+	return dst
+}
+
+func snapshotState(state *ChainState) verificationSnapshot {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	snap := verificationSnapshot{
+		mintedSupply: state.MintedSupply,
+		accounts:     cloneAccountValues(state.Accounts),
+	}
+	if len(state.Chain) > 0 {
+		snap.lastBlock = state.Chain[len(state.Chain)-1]
+	}
+	return snap
+}
+
+// snapshotStateLocked builds a snapshot while assuming the caller already holds
+// the state lock.
+func snapshotStateLocked(state *ChainState) verificationSnapshot {
+	snap := verificationSnapshot{
+		mintedSupply: state.MintedSupply,
+		accounts:     cloneAccountValues(state.Accounts),
+	}
+	if len(state.Chain) > 0 {
+		snap.lastBlock = state.Chain[len(state.Chain)-1]
+	}
+	return snap
+}
+
+func verifyBlockAgainstSnapshot(snap verificationSnapshot, block *Block) error {
+	if block == nil {
+		return fmt.Errorf("block is nil")
+	}
+	if snap.lastBlock.Hash != "" {
+		if block.Index != snap.lastBlock.Index+1 {
+			return fmt.Errorf("block index mismatch: got %d want %d", block.Index, snap.lastBlock.Index+1)
+		}
+		if block.PrevHash != snap.lastBlock.Hash {
+			return fmt.Errorf("prev hash mismatch: got %s want %s", block.PrevHash, snap.lastBlock.Hash)
+		}
+	}
+	if snap.mintedSupply+block.Reward > TotalSupplyCap {
+		return fmt.Errorf("reward exceeds supply cap")
 	}
 
+	accounts := cloneAccountValueMap(snap.accounts)
+
+	expectedSeq := uint64(0)
+	for _, tx := range block.Transactions {
+		if tx.IsCoinbase {
+			if expectedSeq != 0 {
+				return fmt.Errorf("coinbase must be the first transaction")
+			}
+			if tx.Sequence != 0 {
+				return fmt.Errorf("coinbase must have sequence 0")
+			}
+			expectedSeq = 1
+			continue
+		}
+		if tx.Sequence != expectedSeq {
+			return fmt.Errorf("tx sequence mismatch: got %d want %d", tx.Sequence, expectedSeq)
+		}
+		expectedSeq++
+		if err := VerifyTransaction(&tx); err != nil {
+			return fmt.Errorf("tx %s verification failed: %w", tx.ID, err)
+		}
+		sender := accounts[tx.From]
+		if tx.Nonce != sender.Nonce+1 {
+			return fmt.Errorf("nonce mismatch for %s: got %d want %d", tx.From, tx.Nonce, sender.Nonce+1)
+		}
+		if sender.Balance < tx.Amount+tx.Fee {
+			return fmt.Errorf("insufficient balance for %s", tx.From)
+		}
+		sender.Balance -= tx.Amount + tx.Fee
+		sender.Nonce = tx.Nonce
+		accounts[tx.From] = sender
+
+		receiver := accounts[tx.To]
+		receiver.Address = tx.To
+		receiver.Balance += tx.Amount
+		accounts[tx.To] = receiver
+	}
+	return nil
+}
+
+// VerifyBlock validates a block against the current chain state without mutating it.
+func VerifyBlock(state *ChainState, block *Block) error {
+	snap := snapshotState(state)
+	if snap.lastBlock.Hash == "" && block.Index != 0 {
+		return fmt.Errorf("no genesis block found")
+	}
+	return verifyBlockAgainstSnapshot(snap, block)
+}
+
+// CreateBlockTemplate builds a block candidate from the current mempool without
+// mutating state.
+func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
+	state.mu.RLock()
+	if len(state.Chain) == 0 {
+		state.mu.RUnlock()
+		return nil, fmt.Errorf("no genesis block found")
+	}
 	prev := state.Chain[len(state.Chain)-1]
+	mempool := make([]Transaction, len(state.Mempool))
+	copy(mempool, state.Mempool)
+	minted := state.MintedSupply
+	state.mu.RUnlock()
+
 	now := time.Now()
 	blockIndex := prev.Index + 1
 	reward := BlockReward(blockIndex)
-
-	// Enforce supply cap.
-	if state.MintedSupply+reward > TotalSupplyCap {
-		reward = TotalSupplyCap - state.MintedSupply
+	if minted+reward > TotalSupplyCap {
+		reward = TotalSupplyCap - minted
 		if reward < 0 {
 			reward = 0
 		}
@@ -39,7 +162,6 @@ func MineBlock(state *ChainState, miner, dataDir string) (*Block, error) {
 		Nonce:          fmt.Sprintf("%d", now.UnixNano()),
 	}
 
-	// Reject if reveal deadline has already passed (defensive; window is future).
 	if now.Unix() > commitment.RevealDeadline {
 		return nil, fmt.Errorf("reveal deadline already passed")
 	}
@@ -53,12 +175,16 @@ func MineBlock(state *ChainState, miner, dataDir string) (*Block, error) {
 		Nonce:      0,
 		Timestamp:  now.Unix(),
 		IsCoinbase: true,
+		Sequence:   0,
 	}
 
 	txs := []Transaction{coinbaseTx}
-	txs = append(txs, state.Mempool...)
+	for i := range mempool {
+		mempool[i].Sequence = uint64(i + 1)
+		txs = append(txs, mempool[i])
+	}
 
-	block := Block{
+	block := &Block{
 		Index:        blockIndex,
 		PrevHash:     prev.Hash,
 		Timestamp:    now.Unix(),
@@ -67,33 +193,153 @@ func MineBlock(state *ChainState, miner, dataDir string) (*Block, error) {
 		Reward:       reward,
 		Miner:        miner,
 	}
-	block.Hash = BlockHash(&block)
+	block.Hash = BlockHash(block)
+	return block, nil
+}
 
-	// Credit miner reward.
-	if reward > 0 && miner != "" {
-		if _, ok := state.Accounts[miner]; !ok {
-			state.Accounts[miner] = &Account{Address: miner}
-		}
-		state.Accounts[miner].Balance += reward
-		state.MintedSupply += reward
+// DistributeRewards credits the miner while respecting the supply cap.
+// It caps the reward to the remaining supply and updates minted supply to
+// reflect the new issuance.
+func DistributeRewards(state *ChainState, miner string, reward float64) {
+	if reward <= 0 || miner == "" {
+		return
+	}
+	available := TotalSupplyCap - state.MintedSupply
+	if reward > available {
+		reward = available
+	}
+	if _, ok := state.Accounts[miner]; !ok {
+		state.Accounts[miner] = &Account{Address: miner}
+	}
+	state.Accounts[miner].Balance += reward
+	state.MintedSupply += reward
+}
+
+// ApplyPenalty slashes the offender's balance and burns the slashed amount.
+// The penalty is applied when a block is rejected by consensus; the slashed
+// amount is deducted from the offender and removed from minted supply.
+// applyPenaltyLocked assumes the caller already holds the state lock; the
+// exported ApplyPenalty wrapper acquires the lock before invoking it.
+func applyPenaltyLocked(state *ChainState, offender string, amount float64) {
+	acc, ok := state.Accounts[offender]
+	if !ok || amount <= 0 {
+		return
+	}
+	if amount > acc.Balance {
+		applied := acc.Balance
+		log.Printf("[Consensus] penalty capped to available balance for %s: requested %.4f, applied %.4f", offender, amount, applied)
+		amount = applied
+	}
+	acc.Balance -= amount
+	if state.MintedSupply >= amount {
+		state.MintedSupply -= amount
+	}
+}
+
+func ApplyPenalty(state *ChainState, offender string, amount float64) {
+	if offender == "" || amount <= 0 {
+		return
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	applyPenaltyLocked(state, offender, amount)
+}
+
+// AddBlock runs PoVS-style parallel verification and, on success, commits the block.
+// Local verification always counts as one vote; external verifiers are optional
+// to allow single-node operation.
+func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...BlockVerifier) error {
+	var (
+		wg            sync.WaitGroup
+		mu            sync.Mutex
+		votesAccepted int
+		results       []BlockVerification
+		firstErr      error
+	)
+
+	runVerifier := func(name string, fn BlockVerifier) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := fn(block)
+			mu.Lock()
+			defer mu.Unlock()
+			res := BlockVerification{Peer: name, Accepted: err == nil}
+			if err != nil {
+				res.Reason = err.Error()
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+			if res.Accepted {
+				votesAccepted++
+			}
+			results = append(results, res)
+		}()
 	}
 
-	// Apply mempool transactions.
-	for _, tx := range state.Mempool {
-		from := state.Accounts[tx.From]
-		if from == nil {
+	localSnap := snapshotState(state)
+
+	runVerifier("local", func(b *Block) error { return verifyBlockAgainstSnapshot(localSnap, b) })
+	for i, v := range verifiers {
+		name := fmt.Sprintf("peer-%d", i+1)
+		runVerifier(name, v)
+	}
+
+	wg.Wait()
+	block.Verifications = results
+
+	totalVotes := len(verifiers) + 1
+	majority := totalVotes/2 + 1
+	if votesAccepted < majority {
+		state.mu.Lock()
+		applyPenaltyLocked(state, block.Miner, block.Reward)
+		state.mu.Unlock()
+		if firstErr != nil {
+			return firstErr
+		}
+		return fmt.Errorf("block rejected by majority (%d/%d)", votesAccepted, totalVotes)
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	// Re-verify using the latest state snapshot to avoid race conditions.
+	if err := verifyBlockAgainstSnapshot(snapshotStateLocked(state), block); err != nil {
+		return err
+	}
+
+	// Verification already enforced balances/nonces; ensure referenced accounts
+	// still exist under the write lock before mutating state.
+	for _, tx := range block.Transactions {
+		if tx.IsCoinbase {
 			continue
 		}
+		if state.Accounts[tx.From] == nil {
+			return fmt.Errorf("sender account missing during apply: %s", tx.From)
+		}
+	}
+
+	DistributeRewards(state, block.Miner, block.Reward)
+	for _, tx := range block.Transactions {
+		if tx.IsCoinbase {
+			continue
+		}
+		from := state.Accounts[tx.From]
 		from.Balance -= tx.Amount + tx.Fee
 		from.Nonce = tx.Nonce
-		if _, ok := state.Accounts[tx.To]; !ok {
-			state.Accounts[tx.To] = &Account{Address: tx.To}
+		state.Accounts[tx.From] = from
+
+		to := state.Accounts[tx.To]
+		if to == nil {
+			to = &Account{Address: tx.To}
 		}
-		state.Accounts[tx.To].Balance += tx.Amount
+		to.Balance += tx.Amount
+		state.Accounts[tx.To] = to
 	}
 
 	state.Mempool = []Transaction{}
-	state.Chain = append(state.Chain, block)
+	state.Chain = append(state.Chain, *block)
 
 	if dataDir != "" {
 		if err := SaveState(dataDir, state); err != nil {
@@ -101,5 +347,17 @@ func MineBlock(state *ChainState, miner, dataDir string) (*Block, error) {
 		}
 	}
 
-	return &block, nil
+	return nil
+}
+
+// MineBlock builds and commits a new block from the current mempool using PoVS.
+func MineBlock(state *ChainState, miner, dataDir string) (*Block, error) {
+	block, err := CreateBlockTemplate(state, miner)
+	if err != nil {
+		return nil, err
+	}
+	if err := AddBlock(state, block, dataDir); err != nil {
+		return nil, err
+	}
+	return block, nil
 }

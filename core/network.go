@@ -23,6 +23,17 @@ type P2PMessage struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+// VerifyBlockRequest is sent to peers for PoVS validation.
+type VerifyBlockRequest struct {
+	Block Block `json:"block"`
+}
+
+// VerifyBlockResponse returns a peer's validation vote.
+type VerifyBlockResponse struct {
+	Accepted bool   `json:"accepted"`
+	Reason   string `json:"reason,omitempty"`
+}
+
 // NewP2PNode creates a new P2PNode.
 func NewP2PNode(listenAddr string, peers []string, state *ChainState, dataDir string) *P2PNode {
 	return &P2PNode{
@@ -101,6 +112,30 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 		resp.Payload = data
 		if err := enc.Encode(resp); err != nil {
 			log.Printf("[P2P] Failed to send blocks: %v", err)
+		}
+	case "verify_block":
+		var req VerifyBlockRequest
+		if err := json.Unmarshal(msg.Payload, &req); err != nil {
+			log.Printf("[P2P] Failed to decode verify request: %v", err)
+			return
+		}
+		err := VerifyBlock(n.state, &req.Block)
+		if err != nil {
+			log.Printf("[P2P] verify_block failed: %v", err)
+		}
+		resp := P2PMessage{Type: "verify_block_response"}
+		body := VerifyBlockResponse{Accepted: err == nil}
+		if err != nil {
+			body.Reason = err.Error()
+		}
+		respPayload, payloadErr := json.Marshal(body)
+		if payloadErr != nil {
+			log.Printf("[P2P] Failed to marshal verify response: %v", payloadErr)
+			return
+		}
+		resp.Payload = respPayload
+		if err := enc.Encode(resp); err != nil {
+			log.Printf("[P2P] Failed to send verify response: %v", err)
 		}
 	default:
 		log.Printf("[P2P] Unknown message type: %s", msg.Type)
