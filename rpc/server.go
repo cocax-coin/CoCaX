@@ -140,7 +140,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Filter the chain and mempool while holding a read lock to avoid extra allocations.
+	// Filter the chain and mempool while holding a read lock to keep the view consistent.
 	a.state.RLock()
 	chain := a.state.Chain
 	mempool := a.state.Mempool
