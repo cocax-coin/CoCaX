@@ -69,7 +69,7 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 	var resp struct {
 		Confirmed []map[string]interface{} `json:"confirmed"`
 		Pending   []map[string]interface{} `json:"pending"`
-		Total     float64                  `json:"total"`
+		Total     int                      `json:"total"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
