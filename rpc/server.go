@@ -334,14 +334,7 @@ func balanceToHexWei(balance float64) (string, error) {
 // handleJSONRPC serves POST /rpc (JSON-RPC 2.0) for MetaMask-style compatibility.
 func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		jsonResponse(w, http.StatusMethodNotAllowed, rpcResponse{
-			JSONRPC: "2.0",
-			Error: map[string]interface{}{
-				"code":    -32600,
-				"message": "invalid request: POST required",
-			},
-			ID: nil,
-		})
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
