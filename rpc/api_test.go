@@ -335,7 +335,9 @@ func TestJSONRPC_EthChainID(t *testing.T) {
 		t.Fatalf("unexpected error: %s", string(res.Error))
 	}
 	var chainID string
-	_ = json.Unmarshal(res.Result, &chainID)
+	if err := json.Unmarshal(res.Result, &chainID); err != nil {
+		t.Fatalf("unmarshal chainId: %v", err)
+	}
 	if chainID != "0xa9b3e1" {
 		t.Fatalf("chain id mismatch: %s", chainID)
 	}
@@ -348,7 +350,9 @@ func TestJSONRPC_EthBlockNumber(t *testing.T) {
 		t.Fatalf("unexpected error: %s", string(res.Error))
 	}
 	var blockNum string
-	_ = json.Unmarshal(res.Result, &blockNum)
+	if err := json.Unmarshal(res.Result, &blockNum); err != nil {
+		t.Fatalf("unmarshal block number: %v", err)
+	}
 	if blockNum != "0x0" {
 		t.Fatalf("block number mismatch: %s", blockNum)
 	}
@@ -356,7 +360,7 @@ func TestJSONRPC_EthBlockNumber(t *testing.T) {
 
 func TestJSONRPC_EthGetBalance(t *testing.T) {
 	srv, cs := newTestServer(t)
-	addr := "0x1234"
+	addr := "0x1111111111111111111111111111111111111111"
 	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 12.5, Nonce: 0}
 
 	res := callJSONRPC(t, srv.URL, "eth_getBalance", []string{addr})
@@ -364,8 +368,11 @@ func TestJSONRPC_EthGetBalance(t *testing.T) {
 		t.Fatalf("unexpected error: %s", string(res.Error))
 	}
 	var balanceHex string
-	_ = json.Unmarshal(res.Result, &balanceHex)
-	if balanceHex != "0xad78ebc5ac620000" {
+	if err := json.Unmarshal(res.Result, &balanceHex); err != nil {
+		t.Fatalf("unmarshal balance: %v", err)
+	}
+	const expectedWei = "0xad78ebc5ac620000" // 12.5 CoX expressed in wei (1e18)
+	if balanceHex != expectedWei {
 		t.Fatalf("balance hex mismatch: %s", balanceHex)
 	}
 }
@@ -395,7 +402,9 @@ func TestJSONRPC_EthSendRawTransaction(t *testing.T) {
 		t.Fatalf("unexpected error: %s", string(res.Error))
 	}
 	var txID string
-	_ = json.Unmarshal(res.Result, &txID)
+	if err := json.Unmarshal(res.Result, &txID); err != nil {
+		t.Fatalf("unmarshal tx id: %v", err)
+	}
 	if txID == "" {
 		t.Fatalf("expected tx id in result")
 	}

@@ -21,6 +21,7 @@ func main() {
 	dataDir := flag.String("data", "./data", "Data directory for persistence (blocks.json, state.json)")
 	founder := flag.String("founder", "", "Your CoX address to receive the 3.3M founder allocation on first run")
 	genaddr := flag.Bool("genaddr", false, "Generate a new CoX address and exit (use with wallet to get founder address)")
+	allowPlaceholder := flag.Bool("allow-placeholder", false, "Allow running with the placeholder founder address (development only)")
 	flag.Parse()
 
 	// -genaddr: generate a fresh key pair, print the address, then exit.
@@ -37,11 +38,16 @@ func main() {
 	if minerAddr == "" {
 		minerAddr = founderAddr
 	}
+	if founderAddr == core.FounderAddress && !*allowPlaceholder {
+		log.Fatalf("[%s] Placeholder founder address is not allowed without -allow-placeholder; set -founder to your wallet address.", core.CoinName)
+	}
 
 	log.Printf("[%s] Starting CoCaX-Core node...", core.CoinName)
 	log.Printf("[%s] Data directory: %s", core.CoinName, *dataDir)
 	log.Printf("[%s] Chain ID: %d", core.CoinName, core.ChainID)
-	if founderAddr != core.FounderAddress {
+	if founderAddr == core.FounderAddress {
+		log.Printf("[%s] Warning: using placeholder founder address (%s); set -founder to your wallet address for production use.", core.CoinName, founderAddr)
+	} else {
 		log.Printf("[%s] Founder address: %s", core.CoinName, founderAddr)
 	}
 

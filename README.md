@@ -170,6 +170,7 @@ go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 | `-mine` | `false` | Mine one block immediately on startup |
 | `-data` | `./data` | Directory for `blocks.json` / `state.json` |
 | `-genaddr` | `false` | Generate a new CoX address + key pair, then exit |
+| `-allow-placeholder` | `false` | Permit running with the built-in placeholder founder address (dev only) |
 
 ### Example: Two-Node Setup
 ```bash
@@ -234,7 +235,7 @@ go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 > 
 > **عربي** – كيف تُعدّ عنوان المؤسس الخاص بك وتشغّل المحفظة.
 
-The node accepts **MetaMask-style `0x` addresses** for both the founder (`-founder`) and miner (`-miner`) flags. The built-in placeholder is `0x0000000000000000000000000000000000000000`; replace it with your own address on first run.
+The node accepts **MetaMask-style `0x` addresses** for both the founder (`-founder`) and miner (`-miner`) flags. The built-in placeholder is `0x1111111111111111111111111111111111111111`; replace it with your own address on first run (or start with `-allow-placeholder` for development only).
 
 ---
 

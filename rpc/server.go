@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 
 	"cocax-core/core"
 )
@@ -188,18 +189,49 @@ type rpcResponse struct {
 	ID      interface{} `json:"id"`
 }
 
+var balancePrecisionWarn sync.Once
+
 func hexifyUint64(v uint64) string {
 	return fmt.Sprintf("0x%x", v)
 }
 
-func balanceToHexWei(balance float64) string {
-	if balance <= 0 {
-		return "0x0"
+func isValidAddress(addr string) bool {
+	if addr == "" {
+		return false
 	}
-	f := big.NewFloat(balance)
-	f.Mul(f, big.NewFloat(1e18))
-	i, _ := f.Int(nil)
-	return "0x" + i.Text(16)
+	if strings.HasPrefix(addr, "0x") {
+		decoded, err := decodeHexData(addr)
+		return err == nil && len(decoded) == 20
+	}
+	if strings.HasPrefix(addr, core.AddressPrefix) {
+		decoded, err := decodeHexData(addr[len(core.AddressPrefix):])
+		return err == nil && len(decoded) == 20
+	}
+	return false
+}
+
+func decodeHexData(input string) ([]byte, error) {
+	return hex.DecodeString(strings.TrimPrefix(input, "0x"))
+}
+
+func balanceToHexWei(balance float64) (string, error) {
+	// Defensive guard: balances should not be negative; treat as an error if encountered.
+	if balance < 0 {
+		return "", fmt.Errorf("negative balance")
+	}
+	if balance == 0 {
+		return "0x0", nil
+	}
+	scale := big.NewFloat(1e18)
+	weiFloat := new(big.Float).Mul(big.NewFloat(balance), scale)
+	weiInt, acc := weiFloat.Int(nil)
+	weiHex := weiInt.Text(16)
+	if acc != big.Exact {
+		balancePrecisionWarn.Do(func() {
+			log.Printf("[RPC] balance conversion rounded to wei; precision may be reduced when exceeding 18 decimals (accuracy=%v)", acc)
+		})
+	}
+	return "0x" + weiHex, nil
 }
 
 // handleJSONRPC serves POST /rpc (JSON-RPC 2.0) for MetaMask-style compatibility.
@@ -217,10 +249,10 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 	res := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 
-	switch strings.ToLower(req.Method) {
-	case "eth_chainid":
+	switch req.Method {
+	case "eth_chainId":
 		res.Result = hexifyUint64(core.ChainID)
-	case "eth_blocknumber":
+	case "eth_blockNumber":
 		a.state.RLock()
 		height := uint64(0)
 		if len(a.state.Chain) > 0 {
@@ -228,7 +260,7 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		}
 		a.state.RUnlock()
 		res.Result = hexifyUint64(height)
-	case "eth_getbalance":
+	case "eth_getBalance":
 		var params []string
 		if err := json.Unmarshal(req.Params, &params); err != nil || len(params) == 0 {
 			res.Error = map[string]interface{}{
@@ -237,16 +269,31 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 			}
 			break
 		}
-		address := params[0]
+		address := strings.TrimSpace(params[0])
+		if !isValidAddress(address) {
+			res.Error = map[string]interface{}{
+				"code":    -32602,
+				"message": "invalid address",
+			}
+			break
+		}
 		a.state.RLock()
 		acc, ok := a.state.Accounts[address]
-		a.state.RUnlock()
 		var balance float64
-		if ok {
+		if ok && acc != nil {
 			balance = acc.Balance
 		}
-		res.Result = balanceToHexWei(balance)
-	case "eth_sendrawtransaction":
+		a.state.RUnlock()
+		weiHex, err := balanceToHexWei(balance)
+		if err != nil {
+			res.Error = map[string]interface{}{
+				"code":    -32000,
+				"message": err.Error(),
+			}
+			break
+		}
+		res.Result = weiHex
+	case "eth_sendRawTransaction":
 		var params []string
 		if err := json.Unmarshal(req.Params, &params); err != nil || len(params) == 0 {
 			res.Error = map[string]interface{}{
@@ -255,8 +302,7 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 			}
 			break
 		}
-		raw := strings.TrimPrefix(params[0], "0x")
-		rawBytes, err := hex.DecodeString(raw)
+		rawBytes, err := decodeHexData(params[0])
 		if err != nil {
 			res.Error = map[string]interface{}{
 				"code":    -32602,
