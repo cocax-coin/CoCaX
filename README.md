@@ -1,6 +1,6 @@
 # CoCaX-Core ⬡
 
-A Layer-1 style blockchain node, HTTP gateway, and browser wallet built in Go.
+A Layer-1 style blockchain core with an HTTP/RPC gateway. The wallet is a separate client that talks to the RPC server.
 
 | | |
 |---|---|
@@ -19,20 +19,11 @@ A Layer-1 style blockchain node, HTTP gateway, and browser wallet built in Go.
 
 ```
 .
-├── main.go          – CLI entrypoint + startup logic
-├── models.go        – Block, Transaction, Account, ChainState types + constants
-├── crypto.go        – ECDSA P-256 key ops, address derivation, signing/verification
-├── storage.go       – JSON persistence (blocks.json / state.json) + genesis creation
-├── api.go           – HTTP API (CORS, /balance, /tx/submit, /blocks, /mine) + MineBlock
-├── network.go       – Basic P2P TCP listener + peer handshake
-├── main_test.go     – Core unit tests (halving, address derivation, sign/verify, etc.)
-├── api_test.go      – API tests (CORS preflight, balance, tx submit)
-├── wallet/
-│   ├── index.html   – CoXaNa browser wallet UI
-│   ├── style.css    – Dark mode professional stylesheet
-│   └── app.js       – Wallet logic (mnemonic, key derivation, signing, AES-GCM)
+├── cmd/node/main.go – CLI entrypoint that wires core + RPC server
+├── core/            – Blockchain core (models, crypto, storage, consensus, p2p)
+├── rpc/             – HTTP RPC server (CORS, /balance, /tx/submit, /blocks, /mine)
+├── wallet/          – Standalone browser wallet client (talks to RPC)
 ├── go.mod
-├── LICENSE          – MIT
 └── README.md
 ```
 
@@ -141,9 +132,9 @@ curl -X POST http://localhost:8080/mine
 ### Prerequisites
 - Go 1.21 or later (`go version`)
 
-### Run (all-in-one)
+### Run node (RPC + P2P)
 ```bash
-go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
+go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 ```
 
 ### CLI Flags
@@ -161,22 +152,17 @@ go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 ### Example: Two-Node Setup
 ```bash
 # Node 1
-go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -data ./data1
+go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -data ./data1
 
 # Node 2 (connects to node 1)
-go run . -addr 0.0.0.0:9001 -api 0.0.0.0:8081 -peers localhost:9000 -data ./data2
+go run ./cmd/node -addr 0.0.0.0:9001 -api 0.0.0.0:8081 -peers localhost:9000 -data ./data2
 ```
 
 ---
 
 ## Wallet (CoXaNa)
 
-The browser wallet is served from the same HTTP server:
-
-| Scenario | URL |
-|----------|-----|
-| Local | `http://localhost:8080/` |
-| Remote / port-forwarded | `http://<host>:8080/` |
+The browser wallet is a standalone static client that talks to the RPC server. Host the `wallet/` directory with any static file server and point it to your node's `-api` address.
 
 ### Features
 - **Create wallet** – generates a 12-word mnemonic phrase
@@ -215,7 +201,7 @@ gofmt -w .
 go test ./...
 
 # Run
-go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
+go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 ```
 
 ---
@@ -234,7 +220,7 @@ go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 
 1. Start the node in a **temporary** data directory so the wallet UI is reachable (this run will use the placeholder founder; it is just to access the wallet):
    ```bash
-   go run . -api 0.0.0.0:8080 -data ./data-tmp
+go run ./cmd/node -api 0.0.0.0:8080 -data ./data-tmp
    ```
 2. Open **`http://localhost:8080/`** in your browser.
 3. Click **"✦ Create New Wallet"**.
@@ -247,7 +233,7 @@ go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 **Option B – Command line / سطر الأوامر**
 
 ```bash
-go run . -genaddr
+go run ./cmd/node -genaddr
 ```
 
 Sample output:
@@ -269,7 +255,7 @@ Copy the **CoX Address** line.
 
 ```bash
 # Replace with YOUR address from Step 1
-go run . \
+go run ./cmd/node \
   -founder CoX8f3a1b2c... \
   -addr 0.0.0.0:9000 \
   -api  0.0.0.0:8080 \

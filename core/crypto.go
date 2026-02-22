@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"crypto/ecdsa"
@@ -158,4 +158,14 @@ func BlockReward(blockIndex uint64) float64 {
 // floatEqual compares two float64 values within a small epsilon.
 func floatEqual(a, b float64) bool {
 	return math.Abs(a-b) < 1e-9
+}
+
+// FloatEqual is an exported wrapper around floatEqual for other packages.
+func FloatEqual(a, b float64) bool {
+	return floatEqual(a, b)
+}
+
+// PadTo32 is an exported helper that left-pads a byte slice to 32 bytes.
+func PadTo32(b []byte) []byte {
+	return padTo32(b)
 }

@@ -1,19 +1,22 @@
-package main
+package core_test
 
 import (
 	"math"
 	"os"
 	"testing"
 	"time"
+
+	core "cocax-core/core"
+	"cocax-core/rpc"
 )
 
 // ---- Halving schedule -------------------------------------------------------
 
 func TestBlockReward_Genesis(t *testing.T) {
 	// Block 0 is genesis (no reward); block 1 should return BaseBlockReward.
-	r := BlockReward(1)
-	if !floatEqual(r, BaseBlockReward) {
-		t.Errorf("expected %.4f, got %.4f", BaseBlockReward, r)
+	r := core.BlockReward(1)
+	if !core.FloatEqual(r, core.BaseBlockReward) {
+		t.Errorf("expected %.4f, got %.4f", core.BaseBlockReward, r)
 	}
 }
 
@@ -22,17 +25,17 @@ func TestBlockReward_Halving(t *testing.T) {
 		blockIndex uint64
 		want       float64
 	}{
-		{0, BaseBlockReward},
-		{999_999, BaseBlockReward},
-		{1_000_000, BaseBlockReward / 2},
-		{1_999_999, BaseBlockReward / 2},
-		{2_000_000, BaseBlockReward / 4},
-		{3_000_000, BaseBlockReward / 8},
-		{10_000_000, BaseBlockReward / math.Pow(2, 10)},
+		{0, core.BaseBlockReward},
+		{999_999, core.BaseBlockReward},
+		{1_000_000, core.BaseBlockReward / 2},
+		{1_999_999, core.BaseBlockReward / 2},
+		{2_000_000, core.BaseBlockReward / 4},
+		{3_000_000, core.BaseBlockReward / 8},
+		{10_000_000, core.BaseBlockReward / math.Pow(2, 10)},
 	}
 	for _, tt := range tests {
-		got := BlockReward(tt.blockIndex)
-		if !floatEqual(got, tt.want) {
+		got := core.BlockReward(tt.blockIndex)
+		if !core.FloatEqual(got, tt.want) {
 			t.Errorf("BlockReward(%d): want %.10f, got %.10f", tt.blockIndex, tt.want, got)
 		}
 	}
@@ -41,62 +44,62 @@ func TestBlockReward_Halving(t *testing.T) {
 // ---- Address derivation -----------------------------------------------------
 
 func TestDeriveAddress_Consistent(t *testing.T) {
-	priv, err := GenerateKeyPair()
+	priv, err := core.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	addr1 := DeriveAddress(&priv.PublicKey)
+	addr1 := core.DeriveAddress(&priv.PublicKey)
 	if len(addr1) == 0 {
 		t.Fatal("empty address")
 	}
 	// Must start with "CoX".
-	if addr1[:3] != AddressPrefix {
-		t.Errorf("address does not start with %q: %s", AddressPrefix, addr1)
+	if addr1[:3] != core.AddressPrefix {
+		t.Errorf("address does not start with %q: %s", core.AddressPrefix, addr1)
 	}
 	// Derivation must be deterministic.
-	addr2 := DeriveAddress(&priv.PublicKey)
+	addr2 := core.DeriveAddress(&priv.PublicKey)
 	if addr1 != addr2 {
 		t.Errorf("address derivation is not deterministic: %s vs %s", addr1, addr2)
 	}
 }
 
 func TestDeriveAddress_DifferentKeys(t *testing.T) {
-	k1, _ := GenerateKeyPair()
-	k2, _ := GenerateKeyPair()
-	if DeriveAddress(&k1.PublicKey) == DeriveAddress(&k2.PublicKey) {
+	k1, _ := core.GenerateKeyPair()
+	k2, _ := core.GenerateKeyPair()
+	if core.DeriveAddress(&k1.PublicKey) == core.DeriveAddress(&k2.PublicKey) {
 		t.Error("two different keys produced the same address")
 	}
 }
 
 // ---- Transaction signing / verification -------------------------------------
 
-func newSignedTx(t *testing.T) (Transaction, func()) {
+func newSignedTx(t *testing.T) (core.Transaction, func()) {
 	t.Helper()
-	priv, err := GenerateKeyPair()
+	priv, err := core.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	addr := DeriveAddress(&priv.PublicKey)
+	addr := core.DeriveAddress(&priv.PublicKey)
 
 	// Fund the sender so balance checks pass when tested through the mempool.
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 	}
-	if err := SignTransaction(&tx, priv); err != nil {
+	if err := core.SignTransaction(&tx, priv); err != nil {
 		t.Fatalf("SignTransaction: %v", err)
 	}
-	tx.ID = TxID(&tx)
+	tx.ID = core.TxID(&tx)
 	return tx, func() {}
 }
 
 func TestSignVerifyTransaction_Valid(t *testing.T) {
 	tx, _ := newSignedTx(t)
-	if err := VerifyTransaction(&tx); err != nil {
+	if err := core.VerifyTransaction(&tx); err != nil {
 		t.Errorf("expected valid tx to pass verification: %v", err)
 	}
 }
@@ -105,7 +108,7 @@ func TestVerifyTransaction_MissingSignature(t *testing.T) {
 	tx, _ := newSignedTx(t)
 	tx.SigR = ""
 	tx.SigS = ""
-	if err := VerifyTransaction(&tx); err == nil {
+	if err := core.VerifyTransaction(&tx); err == nil {
 		t.Error("expected error for missing signature, got nil")
 	}
 }
@@ -114,7 +117,7 @@ func TestVerifyTransaction_WrongAddress(t *testing.T) {
 	tx, _ := newSignedTx(t)
 	// Tamper with From address so it no longer matches derived key.
 	tx.From = "CoXdeadbeefdeadbeef0000000000000000000000000"
-	if err := VerifyTransaction(&tx); err == nil {
+	if err := core.VerifyTransaction(&tx); err == nil {
 		t.Error("expected error for address mismatch, got nil")
 	}
 }
@@ -123,77 +126,77 @@ func TestVerifyTransaction_TamperedPayload(t *testing.T) {
 	tx, _ := newSignedTx(t)
 	// Change amount after signing – signature should now be invalid.
 	tx.Amount = 999.0
-	if err := VerifyTransaction(&tx); err == nil {
+	if err := core.VerifyTransaction(&tx); err == nil {
 		t.Error("expected error after tampering payload, got nil")
 	}
 }
 
 // ---- Mempool validation (via APIServer) -------------------------------------
 
-func newFundedState(addr string, balance float64) *ChainState {
-	cs := &ChainState{
-		Accounts: map[string]*Account{
+func newFundedState(addr string, balance float64) *core.ChainState {
+	cs := &core.ChainState{
+		Accounts: map[string]*core.Account{
 			addr: {Address: addr, Balance: balance, Nonce: 0},
 		},
-		Mempool: []Transaction{},
+		Mempool: []core.Transaction{},
 	}
 	return cs
 }
 
 func TestMempool_ValidTxAccepted(t *testing.T) {
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
 	cs := newFundedState(addr, 10.0)
-	api := NewAPIServer(cs, "", "")
+	api := rpc.NewServer(cs, "", "")
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
-	if err := api.validateAndAddTx(&tx); err != nil {
+	if err := api.ValidateAndAddTx(&tx); err != nil {
 		t.Errorf("expected valid tx to be accepted: %v", err)
 	}
-	cs.mu.Lock()
+	cs.Lock()
 	if len(cs.Mempool) != 1 {
 		t.Errorf("expected mempool size 1, got %d", len(cs.Mempool))
 	}
-	cs.mu.Unlock()
+	cs.Unlock()
 }
 
 func TestMempool_NonceMismatch(t *testing.T) {
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
 	cs := newFundedState(addr, 10.0)
-	api := NewAPIServer(cs, "", "")
+	api := rpc.NewServer(cs, "", "")
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     5, // should be 1
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
-	if err := api.validateAndAddTx(&tx); err == nil {
+	if err := api.ValidateAndAddTx(&tx); err == nil {
 		t.Error("expected nonce mismatch error, got nil")
 	}
 }
 
 func TestMempool_WrongFeeRejected(t *testing.T) {
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
 	cs := newFundedState(addr, 10.0)
-	api := NewAPIServer(cs, "", "")
+	api := rpc.NewServer(cs, "", "")
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
@@ -201,30 +204,30 @@ func TestMempool_WrongFeeRejected(t *testing.T) {
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
-	if err := api.validateAndAddTx(&tx); err == nil {
+	if err := api.ValidateAndAddTx(&tx); err == nil {
 		t.Error("expected fee enforcement error, got nil")
 	}
 }
 
 func TestMempool_InsufficientBalance(t *testing.T) {
-	priv, _ := GenerateKeyPair()
-	addr := DeriveAddress(&priv.PublicKey)
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
 	cs := newFundedState(addr, 0.005) // way too little
-	api := NewAPIServer(cs, "", "")
+	api := rpc.NewServer(cs, "", "")
 
-	tx := Transaction{
+	tx := core.Transaction{
 		From:      addr,
 		To:        "CoXrecipient000000000000000000000000000000000",
 		Amount:    1.0,
-		Fee:       FixedFee,
+		Fee:       core.FixedFee,
 		Nonce:     1,
 		Timestamp: time.Now().Unix(),
 	}
-	_ = SignTransaction(&tx, priv)
+	_ = core.SignTransaction(&tx, priv)
 
-	if err := api.validateAndAddTx(&tx); err == nil {
+	if err := api.ValidateAndAddTx(&tx); err == nil {
 		t.Error("expected insufficient balance error, got nil")
 	}
 }
@@ -233,16 +236,16 @@ func TestMempool_InsufficientBalance(t *testing.T) {
 
 func TestFounderAllocationAtGenesis(t *testing.T) {
 	dir := t.TempDir()
-	cs, err := LoadState(dir, "")
+	cs, err := core.LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState: %v", err)
 	}
-	acc, ok := cs.Accounts[FounderAddress]
+	acc, ok := cs.Accounts[core.FounderAddress]
 	if !ok {
 		t.Fatal("founder account not found after genesis")
 	}
-	if !floatEqual(acc.Balance, FounderAllocation) {
-		t.Errorf("founder balance: want %.2f, got %.2f", FounderAllocation, acc.Balance)
+	if !core.FloatEqual(acc.Balance, core.FounderAllocation) {
+		t.Errorf("founder balance: want %.2f, got %.2f", core.FounderAllocation, acc.Balance)
 	}
 	if len(cs.Chain) != 1 {
 		t.Errorf("expected 1 genesis block, got %d", len(cs.Chain))
@@ -251,22 +254,22 @@ func TestFounderAllocationAtGenesis(t *testing.T) {
 
 func TestLoadState_Persists(t *testing.T) {
 	dir := t.TempDir()
-	cs, err := LoadState(dir, "")
+	cs, err := core.LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState (first): %v", err)
 	}
 	// Save explicitly then reload.
-	if err := SaveState(dir, cs); err != nil {
+	if err := core.SaveState(dir, cs); err != nil {
 		t.Fatalf("SaveState: %v", err)
 	}
-	cs2, err := LoadState(dir, "")
+	cs2, err := core.LoadState(dir, "")
 	if err != nil {
 		t.Fatalf("LoadState (second): %v", err)
 	}
 	if len(cs2.Chain) != len(cs.Chain) {
 		t.Errorf("chain length mismatch after reload: %d vs %d", len(cs2.Chain), len(cs.Chain))
 	}
-	if !floatEqual(cs2.MintedSupply, cs.MintedSupply) {
+	if !core.FloatEqual(cs2.MintedSupply, cs.MintedSupply) {
 		t.Errorf("minted supply mismatch after reload: %.2f vs %.2f", cs2.MintedSupply, cs.MintedSupply)
 	}
 }
@@ -275,12 +278,12 @@ func TestLoadState_Persists(t *testing.T) {
 
 func TestMineBlock(t *testing.T) {
 	dir := t.TempDir()
-	cs, _ := LoadState(dir, "")
+	cs, _ := core.LoadState(dir, "")
 	// Use a fresh key as miner address.
-	priv, _ := GenerateKeyPair()
-	minerAddr := DeriveAddress(&priv.PublicKey)
+	priv, _ := core.GenerateKeyPair()
+	minerAddr := core.DeriveAddress(&priv.PublicKey)
 
-	block, err := MineBlock(cs, minerAddr, dir)
+	block, err := core.MineBlock(cs, minerAddr, dir)
 	if err != nil {
 		t.Fatalf("MineBlock: %v", err)
 	}
@@ -291,12 +294,12 @@ func TestMineBlock(t *testing.T) {
 		t.Errorf("block miner mismatch")
 	}
 
-	cs.mu.RLock()
+	cs.RLock()
 	minerAcc := cs.Accounts[minerAddr]
-	cs.mu.RUnlock()
+	cs.RUnlock()
 
-	expectedReward := BlockReward(1)
-	if !floatEqual(minerAcc.Balance, expectedReward) {
+	expectedReward := core.BlockReward(1)
+	if !core.FloatEqual(minerAcc.Balance, expectedReward) {
 		t.Errorf("miner balance: want %.8f, got %.8f", expectedReward, minerAcc.Balance)
 	}
 }
@@ -305,7 +308,7 @@ func TestMineBlock(t *testing.T) {
 
 func TestSaveState_CreatesFiles(t *testing.T) {
 	dir := t.TempDir()
-	cs, _ := LoadState(dir, "")
+	cs, _ := core.LoadState(dir, "")
 	// Files should already exist after LoadState (genesis path).
 	if _, err := os.Stat(dir + "/blocks.json"); err != nil {
 		t.Errorf("blocks.json not created: %v", err)
@@ -320,14 +323,14 @@ func TestSaveState_CreatesFiles(t *testing.T) {
 
 func TestCustomFounderAddress(t *testing.T) {
 	// Generate a fresh address to use as a custom founder.
-	priv, err := GenerateKeyPair()
+	priv, err := core.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	customFounder := DeriveAddress(&priv.PublicKey)
+	customFounder := core.DeriveAddress(&priv.PublicKey)
 
 	dir := t.TempDir()
-	cs, err := LoadState(dir, customFounder)
+	cs, err := core.LoadState(dir, customFounder)
 	if err != nil {
 		t.Fatalf("LoadState with custom founder: %v", err)
 	}
@@ -337,11 +340,11 @@ func TestCustomFounderAddress(t *testing.T) {
 	if !ok {
 		t.Fatal("custom founder account not found after genesis")
 	}
-	if !floatEqual(acc.Balance, FounderAllocation) {
-		t.Errorf("custom founder balance: want %.2f, got %.2f", FounderAllocation, acc.Balance)
+	if !core.FloatEqual(acc.Balance, core.FounderAllocation) {
+		t.Errorf("custom founder balance: want %.2f, got %.2f", core.FounderAllocation, acc.Balance)
 	}
 	// The default placeholder must NOT have received the allocation.
-	if _, ok := cs.Accounts[FounderAddress]; ok {
+	if _, ok := cs.Accounts[core.FounderAddress]; ok {
 		t.Error("default founder placeholder should not have an account when custom founder is set")
 	}
 }
@@ -349,15 +352,15 @@ func TestCustomFounderAddress(t *testing.T) {
 // ---- -genaddr logic (key generation + address derivation) -------------------
 
 func TestGenerateKeyPair_ProducesValidAddress(t *testing.T) {
-	priv, err := GenerateKeyPair()
+	priv, err := core.GenerateKeyPair()
 	if err != nil {
 		t.Fatalf("GenerateKeyPair: %v", err)
 	}
-	addr := DeriveAddress(&priv.PublicKey)
-	if len(addr) < len(AddressPrefix)+1 {
+	addr := core.DeriveAddress(&priv.PublicKey)
+	if len(addr) < len(core.AddressPrefix)+1 {
 		t.Fatalf("address too short: %s", addr)
 	}
-	if addr[:len(AddressPrefix)] != AddressPrefix {
-		t.Errorf("address missing prefix %q: %s", AddressPrefix, addr)
+	if addr[:len(core.AddressPrefix)] != core.AddressPrefix {
+		t.Errorf("address missing prefix %q: %s", core.AddressPrefix, addr)
 	}
 }

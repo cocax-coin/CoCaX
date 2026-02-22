@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"sync"
@@ -74,3 +74,15 @@ type ChainState struct {
 	MintedSupply float64             `json:"minted_supply"`
 	Mempool      []Transaction       `json:"-"`
 }
+
+// Lock acquires the write lock.
+func (cs *ChainState) Lock() { cs.mu.Lock() }
+
+// Unlock releases the write lock.
+func (cs *ChainState) Unlock() { cs.mu.Unlock() }
+
+// RLock acquires the read lock.
+func (cs *ChainState) RLock() { cs.mu.RLock() }
+
+// RUnlock releases the read lock.
+func (cs *ChainState) RUnlock() { cs.mu.RUnlock() }

@@ -7,6 +7,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"cocax-core/core"
+	"cocax-core/rpc"
 )
 
 func main() {
@@ -28,55 +31,54 @@ func main() {
 
 	founderAddr := *founder
 	if founderAddr == "" {
-		founderAddr = FounderAddress
+		founderAddr = core.FounderAddress
 	}
 	minerAddr := *miner
 	if minerAddr == "" {
 		minerAddr = founderAddr
 	}
 
-	log.Printf("[%s] Starting CoCaX-Core node...", CoinName)
-	log.Printf("[%s] Data directory: %s", CoinName, *dataDir)
-	if founderAddr != FounderAddress {
-		log.Printf("[%s] Founder address: %s", CoinName, founderAddr)
+	log.Printf("[%s] Starting CoCaX-Core node...", core.CoinName)
+	log.Printf("[%s] Data directory: %s", core.CoinName, *dataDir)
+	if founderAddr != core.FounderAddress {
+		log.Printf("[%s] Founder address: %s", core.CoinName, founderAddr)
 	}
 
-	state, err := LoadState(*dataDir, founderAddr)
+	state, err := core.LoadState(*dataDir, founderAddr)
 	if err != nil {
-		log.Fatalf("[%s] Failed to load state: %v", CoinName, err)
+		log.Fatalf("[%s] Failed to load state: %v", core.CoinName, err)
 	}
 	log.Printf("[%s] Chain loaded: %d blocks, minted supply: %.2f %s",
-		CoinName, len(state.Chain), state.MintedSupply, Ticker)
+		core.CoinName, len(state.Chain), state.MintedSupply, core.Ticker)
 
 	// Start P2P listener.
 	peerList := []string{}
 	if *peers != "" {
 		peerList = strings.Split(*peers, ",")
 	}
-	p2p := NewP2PNode(*addr, peerList, state, *dataDir)
+	p2p := core.NewP2PNode(*addr, peerList, state, *dataDir)
 	p2p.Start()
 
 	// Mine a block on startup if requested.
 	if *mine {
-		block, err := MineBlock(state, minerAddr, *dataDir)
+		block, err := core.MineBlock(state, minerAddr, *dataDir)
 		if err != nil {
-			log.Printf("[%s] Mine error: %v", CoinName, err)
+			log.Printf("[%s] Mine error: %v", core.CoinName, err)
 		} else {
 			log.Printf("[%s] Mined block #%d hash=%s reward=%.4f %s",
-				CoinName, block.Index, block.Hash[:16], block.Reward, Ticker)
+				core.CoinName, block.Index, block.Hash[:16], block.Reward, core.Ticker)
 		}
 	}
 
-	// Start HTTP API.
-	api := NewAPIServer(state, *dataDir, minerAddr)
-	log.Printf("[%s] HTTP API listening on  http://%s", CoinName, *apiAddr)
-	log.Printf("[%s] Wallet UI:              http://%s/", CoinName, *apiAddr)
-	log.Printf("[%s] Blocks endpoint:        http://%s/blocks", CoinName, *apiAddr)
-	log.Printf("[%s] Balance endpoint:       http://%s/balance/<address>", CoinName, *apiAddr)
-	log.Printf("[%s] Run command: go run . -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data", CoinName)
+	// Start HTTP API (RPC).
+	api := rpc.NewServer(state, *dataDir, minerAddr)
+	log.Printf("[%s] HTTP API listening on  http://%s", core.CoinName, *apiAddr)
+	log.Printf("[%s] Blocks endpoint:        http://%s/blocks", core.CoinName, *apiAddr)
+	log.Printf("[%s] Balance endpoint:       http://%s/balance/<address>", core.CoinName, *apiAddr)
+	log.Printf("[%s] Run command: go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data", core.CoinName)
 
 	if err := http.ListenAndServe(*apiAddr, api.Router()); err != nil {
-		log.Fatalf("[%s] HTTP server error: %v", CoinName, err)
+		log.Fatalf("[%s] HTTP server error: %v", core.CoinName, err)
 	}
 }
 
@@ -84,14 +86,14 @@ func main() {
 // private key (hex), public key coordinates (hex), and derived CoX address,
 // then exits.  The address can be used as the -founder flag on first run.
 func printGeneratedAddress() {
-	priv, err := GenerateKeyPair()
+	priv, err := core.GenerateKeyPair()
 	if err != nil {
 		log.Fatalf("key generation failed: %v", err)
 	}
-	addr := DeriveAddress(&priv.PublicKey)
+	addr := core.DeriveAddress(&priv.PublicKey)
 	privHex := hex.EncodeToString(priv.D.Bytes())
-	xHex := hex.EncodeToString(padTo32(priv.PublicKey.X.Bytes()))
-	yHex := hex.EncodeToString(padTo32(priv.PublicKey.Y.Bytes()))
+	xHex := hex.EncodeToString(core.PadTo32(priv.PublicKey.X.Bytes()))
+	yHex := hex.EncodeToString(core.PadTo32(priv.PublicKey.Y.Bytes()))
 
 	fmt.Println()
 	fmt.Println("================================================================")
@@ -103,13 +105,11 @@ func printGeneratedAddress() {
 	fmt.Printf("  Public Key Y : %s\n", yHex)
 	fmt.Println()
 	fmt.Println("  HOW TO USE:")
-	fmt.Println("  1. Open the wallet UI by starting the node in a separate terminal:")
-	fmt.Println("       go run . -api 0.0.0.0:8080 -data ./data-tmp")
-	fmt.Println("     Then visit http://localhost:8080/ to create a mnemonic wallet")
-	fmt.Println("     and obtain your CoX address.")
+	fmt.Println("  1. Start the node API (RPC) separately, then use the wallet client to connect.")
+	fmt.Printf("       go run ./cmd/node -api 0.0.0.0:8080 -data ./data-tmp\n")
 	fmt.Println("  -- OR use the address printed above directly --")
 	fmt.Println("  2. Start the production node with your address as the founder:")
-	fmt.Printf("       go run . -founder %s -data ./data\n", addr)
+	fmt.Printf("       go run ./cmd/node -founder %s -data ./data\n", addr)
 	fmt.Println("  3. Your founder address will receive 3,300,000 CoX on genesis.")
 	fmt.Println()
 	fmt.Println("  SECURITY: Keep your private key and mnemonic phrase offline!")
