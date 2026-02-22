@@ -10,15 +10,15 @@ import (
 )
 
 func TestHandleBalanceAliases(t *testing.T) {
-	accountAddr := "CoX1111111111111111111111111111111111111111"
+	testAccountAddr := "CoX1111111111111111111111111111111111111111"
 	state := &core.ChainState{
 		Accounts: map[string]*core.Account{
-			accountAddr: {Address: accountAddr, Balance: 5.5, Nonce: 2},
+			testAccountAddr: {Address: testAccountAddr, Balance: 5.5, Nonce: 2},
 		},
 	}
 	api := NewServer(state, "", "")
 
-	for _, path := range []string{"/api/balance/" + accountAddr, "/balance?address=" + accountAddr} {
+	for _, path := range []string{"/api/balance/" + testAccountAddr, "/balance?address=" + testAccountAddr} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rr := httptest.NewRecorder()
 		api.Router().ServeHTTP(rr, req)
@@ -29,27 +29,27 @@ func TestHandleBalanceAliases(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("path %s: failed to decode response: %v", path, err)
 		}
-		if resp["address"] != accountAddr {
+		if resp["address"] != testAccountAddr {
 			t.Fatalf("path %s: address mismatch, got %v", path, resp["address"])
 		}
-		if resp["balance"] != state.Accounts[accountAddr].Balance {
+		if resp["balance"] != state.Accounts[testAccountAddr].Balance {
 			t.Fatalf("path %s: balance mismatch, got %v", path, resp["balance"])
 		}
 		nonceVal, ok := resp["nonce"].(float64)
 		if !ok {
 			t.Fatalf("path %s: nonce not present or wrong type", path)
 		}
-		if uint64(nonceVal) != state.Accounts[accountAddr].Nonce {
+		if uint64(nonceVal) != state.Accounts[testAccountAddr].Nonce {
 			t.Fatalf("path %s: nonce mismatch, got %v", path, nonceVal)
 		}
 	}
 }
 
 func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
-	walletAddr := "CoX2222222222222222222222222222222222222222"
-	counterpartyAddr := "CoX3333333333333333333333333333333333333333"
-	confirmedTx := core.Transaction{ID: "tx1", From: walletAddr, To: counterpartyAddr, Amount: 1}
-	pendingTx := core.Transaction{ID: "tx2", From: counterpartyAddr, To: walletAddr, Amount: 2}
+	testWalletAddr := "CoX2222222222222222222222222222222222222222"
+	testCounterpartyAddr := "CoX3333333333333333333333333333333333333333"
+	confirmedTx := core.Transaction{ID: "tx1", From: testWalletAddr, To: testCounterpartyAddr, Amount: 1}
+	pendingTx := core.Transaction{ID: "tx2", From: testCounterpartyAddr, To: testWalletAddr, Amount: 2}
 
 	state := &core.ChainState{
 		Chain: []core.Block{{Index: 1, Hash: "hash1", Transactions: []core.Transaction{confirmedTx}}},
@@ -60,7 +60,7 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 	}
 	api := NewServer(state, "", "")
 
-	req := httptest.NewRequest(http.MethodGet, "/transactions/"+walletAddr, nil)
+	req := httptest.NewRequest(http.MethodGet, "/transactions/"+testWalletAddr, nil)
 	rr := httptest.NewRecorder()
 	api.Router().ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
