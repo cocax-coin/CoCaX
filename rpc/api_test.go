@@ -2,6 +2,7 @@ package rpc_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,20 @@ func newTestServer(t *testing.T) (*httptest.Server, *core.ChainState) {
 	srv := httptest.NewServer(api.Router())
 	t.Cleanup(srv.Close)
 	return srv, cs
+}
+
+type jsonRPCRequest struct {
+	JSONRPC string      `json:"jsonrpc"`
+	Method  string      `json:"method"`
+	Params  interface{} `json:"params,omitempty"`
+	ID      int         `json:"id"`
+}
+
+type jsonRPCResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+	ID      int             `json:"id"`
 }
 
 // ---- CORS -------------------------------------------------------------------
@@ -148,6 +163,29 @@ func submitTx(t *testing.T, srvURL string, tx core.Transaction) (*http.Response,
 		return nil, err
 	}
 	return http.Post(srvURL+"/tx/submit", "application/json", bytes.NewReader(body))
+}
+
+func callJSONRPC(t *testing.T, srvURL, method string, params interface{}) jsonRPCResponse {
+	t.Helper()
+	payload, err := json.Marshal(jsonRPCRequest{
+		JSONRPC: "2.0",
+		Method:  method,
+		Params:  params,
+		ID:      1,
+	})
+	if err != nil {
+		t.Fatalf("marshal rpc request: %v", err)
+	}
+	resp, err := http.Post(srvURL+"/rpc", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("rpc request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var out jsonRPCResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode rpc response: %v", err)
+	}
+	return out
 }
 
 func TestTxSubmit_ValidTx(t *testing.T) {
@@ -286,4 +324,84 @@ func TestTxSubmit_CoinbaseRejected(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for coinbase tx, got %d", resp.StatusCode)
 	}
+}
+
+// ---- JSON-RPC (/rpc) ---------------------------------------------------------
+
+func TestJSONRPC_EthChainID(t *testing.T) {
+	srv, _ := newTestServer(t)
+	res := callJSONRPC(t, srv.URL, "eth_chainId", []string{})
+	if len(res.Error) != 0 {
+		t.Fatalf("unexpected error: %s", string(res.Error))
+	}
+	var chainID string
+	_ = json.Unmarshal(res.Result, &chainID)
+	if chainID != "0xa9b3e1" {
+		t.Fatalf("chain id mismatch: %s", chainID)
+	}
+}
+
+func TestJSONRPC_EthBlockNumber(t *testing.T) {
+	srv, _ := newTestServer(t)
+	res := callJSONRPC(t, srv.URL, "eth_blockNumber", []string{})
+	if len(res.Error) != 0 {
+		t.Fatalf("unexpected error: %s", string(res.Error))
+	}
+	var blockNum string
+	_ = json.Unmarshal(res.Result, &blockNum)
+	if blockNum != "0x0" {
+		t.Fatalf("block number mismatch: %s", blockNum)
+	}
+}
+
+func TestJSONRPC_EthGetBalance(t *testing.T) {
+	srv, cs := newTestServer(t)
+	addr := "0x1234"
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 12.5, Nonce: 0}
+
+	res := callJSONRPC(t, srv.URL, "eth_getBalance", []string{addr})
+	if len(res.Error) != 0 {
+		t.Fatalf("unexpected error: %s", string(res.Error))
+	}
+	var balanceHex string
+	_ = json.Unmarshal(res.Result, &balanceHex)
+	if balanceHex != "0xad78ebc5ac620000" {
+		t.Fatalf("balance hex mismatch: %s", balanceHex)
+	}
+}
+
+func TestJSONRPC_EthSendRawTransaction(t *testing.T) {
+	srv, cs := newTestServer(t)
+
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 5, Nonce: 0}
+
+	tx := core.Transaction{
+		From:      addr,
+		To:        "CoXrecipient000000000000000000000000000000000",
+		Amount:    1.0,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Unix(),
+	}
+	_ = core.SignTransaction(&tx, priv)
+
+	rawBytes, _ := json.Marshal(tx)
+	rawHex := "0x" + hex.EncodeToString(rawBytes)
+
+	res := callJSONRPC(t, srv.URL, "eth_sendRawTransaction", []string{rawHex})
+	if len(res.Error) != 0 {
+		t.Fatalf("unexpected error: %s", string(res.Error))
+	}
+	var txID string
+	_ = json.Unmarshal(res.Result, &txID)
+	if txID == "" {
+		t.Fatalf("expected tx id in result")
+	}
+	cs.RLock()
+	if len(cs.Mempool) != 1 {
+		t.Fatalf("tx not added to mempool")
+	}
+	cs.RUnlock()
 }

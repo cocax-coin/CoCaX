@@ -1,9 +1,11 @@
 package rpc
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 
@@ -29,6 +31,7 @@ func (a *Server) Router() http.Handler {
 	mux.HandleFunc("/tx/submit", a.handleTxSubmit)
 	mux.HandleFunc("/blocks", a.handleBlocks)
 	mux.HandleFunc("/mine", a.handleMine)
+	mux.HandleFunc("/rpc", a.handleJSONRPC)
 	return corsMiddleware(mux)
 }
 
@@ -169,4 +172,120 @@ func (a *Server) handleMine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, block)
+}
+
+type rpcRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+	ID      interface{}     `json:"id"`
+}
+
+type rpcResponse struct {
+	JSONRPC string      `json:"jsonrpc"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   interface{} `json:"error,omitempty"`
+	ID      interface{} `json:"id"`
+}
+
+func hexifyUint64(v uint64) string {
+	return fmt.Sprintf("0x%x", v)
+}
+
+func balanceToHexWei(balance float64) string {
+	if balance <= 0 {
+		return "0x0"
+	}
+	f := big.NewFloat(balance)
+	f.Mul(f, big.NewFloat(1e18))
+	i, _ := f.Int(nil)
+	return "0x" + i.Text(16)
+}
+
+// handleJSONRPC serves POST /rpc (JSON-RPC 2.0) for MetaMask-style compatibility.
+func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req rpcRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	res := rpcResponse{JSONRPC: "2.0", ID: req.ID}
+
+	switch strings.ToLower(req.Method) {
+	case "eth_chainid":
+		res.Result = hexifyUint64(core.ChainID)
+	case "eth_blocknumber":
+		a.state.RLock()
+		height := uint64(0)
+		if len(a.state.Chain) > 0 {
+			height = a.state.Chain[len(a.state.Chain)-1].Index
+		}
+		a.state.RUnlock()
+		res.Result = hexifyUint64(height)
+	case "eth_getbalance":
+		var params []string
+		if err := json.Unmarshal(req.Params, &params); err != nil || len(params) == 0 {
+			res.Error = map[string]interface{}{
+				"code":    -32602,
+				"message": "invalid params",
+			}
+			break
+		}
+		address := params[0]
+		a.state.RLock()
+		acc, ok := a.state.Accounts[address]
+		a.state.RUnlock()
+		var balance float64
+		if ok {
+			balance = acc.Balance
+		}
+		res.Result = balanceToHexWei(balance)
+	case "eth_sendrawtransaction":
+		var params []string
+		if err := json.Unmarshal(req.Params, &params); err != nil || len(params) == 0 {
+			res.Error = map[string]interface{}{
+				"code":    -32602,
+				"message": "invalid params",
+			}
+			break
+		}
+		raw := strings.TrimPrefix(params[0], "0x")
+		rawBytes, err := hex.DecodeString(raw)
+		if err != nil {
+			res.Error = map[string]interface{}{
+				"code":    -32602,
+				"message": "invalid raw transaction",
+			}
+			break
+		}
+		var tx core.Transaction
+		if err := json.Unmarshal(rawBytes, &tx); err != nil {
+			res.Error = map[string]interface{}{
+				"code":    -32602,
+				"message": "unable to decode transaction",
+			}
+			break
+		}
+		if err := a.validateAndAddTx(&tx); err != nil {
+			res.Error = map[string]interface{}{
+				"code":    -32000,
+				"message": err.Error(),
+			}
+			break
+		}
+		res.Result = tx.ID
+	default:
+		res.Error = map[string]interface{}{
+			"code":    -32601,
+			"message": "method not found",
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, res)
 }

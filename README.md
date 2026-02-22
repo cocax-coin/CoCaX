@@ -5,6 +5,9 @@ A Layer-1 style blockchain core with an HTTP/RPC gateway. The wallet is a separa
 | | |
 |---|---|
 | **Coin** | CoCaX (CoX) |
+| **Currency symbol** | `CoX` |
+| **Chain ID** | `11121633` (`0xa9b3e1`) |
+| **RPC URL** | `http://localhost:8080/rpc` |
 | **Address prefix** | `CoX` |
 | **Total supply** | 33,000,000 CoX |
 | **Base block reward** | 3.3 CoX |
@@ -133,6 +136,17 @@ Mines a new block from the current mempool (for development/testing).
 curl -X POST http://localhost:8080/mine
 ```
 
+### JSON-RPC `/rpc` (MetaMask-friendly)
+
+- **RPC URL**: `http://localhost:8080/rpc`
+- **Chain ID**: `11121633` (`0xa9b3e1`)
+- **Currency symbol**: `CoX`
+- **Supported methods**:
+  - `eth_chainId` → returns `"0xa9b3e1"`
+  - `eth_blockNumber` → latest block index as hex
+  - `eth_getBalance` → balance of any address as hex Wei-like units (1 CoX = 1e18)
+  - `eth_sendRawTransaction` → submit a hex-encoded JSON transaction (`0x{json hex}`)
+
 ---
 
 ## Running the Node
@@ -219,6 +233,8 @@ go run ./cmd/node -addr 0.0.0.0:9000 -api 0.0.0.0:8080 -mine -data ./data
 > **English** – How to set your personal founder address and run the wallet.
 > 
 > **عربي** – كيف تُعدّ عنوان المؤسس الخاص بك وتشغّل المحفظة.
+
+The node accepts **MetaMask-style `0x` addresses** for both the founder (`-founder`) and miner (`-miner`) flags. The built-in placeholder is `0x0000000000000000000000000000000000000000`; replace it with your own address on first run.
 
 ---
 

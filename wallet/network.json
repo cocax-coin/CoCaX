@@ -1,5 +1,6 @@
 {
   "chainId": 11121633,
   "networkName": "CoCaX",
-  "rpcUrl": "http://localhost:8080"
+  "rpcUrl": "http://localhost:8080",
+  "currencySymbol": "CoX"
 }
