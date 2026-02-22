@@ -148,7 +148,15 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 	copy(pendingPool, a.state.Mempool)
 	a.state.RUnlock()
 
-	confirmed := make([]txWithMeta, 0, len(chain))
+	confirmedCount := 0
+	for _, blk := range chain {
+		for _, tx := range blk.Transactions {
+			if tx.From == address || tx.To == address {
+				confirmedCount++
+			}
+		}
+	}
+	confirmed := make([]txWithMeta, 0, confirmedCount)
 	for _, blk := range chain {
 		for _, tx := range blk.Transactions {
 			if tx.From == address || tx.To == address {
@@ -162,7 +170,13 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pending := make([]txWithMeta, 0, len(pendingPool))
+	pendingCount := 0
+	for _, tx := range pendingPool {
+		if tx.From == address || tx.To == address {
+			pendingCount++
+		}
+	}
+	pending := make([]txWithMeta, 0, pendingCount)
 	for _, tx := range pendingPool {
 		if tx.From == address || tx.To == address {
 			pending = append(pending, txWithMeta{
