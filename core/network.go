@@ -83,10 +83,15 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 	n.state.mu.RUnlock()
 
 	hello := P2PMessage{Type: "hello"}
-	helloPayload, _ := json.Marshal(map[string]interface{}{
+	helloPayload, err := json.Marshal(map[string]interface{}{
 		"node":         "CoCaX-Core",
+		"chain_id":     ChainID,
 		"chain_length": chainLen,
 	})
+	if err != nil {
+		log.Printf("[P2P] Failed to marshal hello payload: %v", err)
+		return
+	}
 	hello.Payload = helloPayload
 
 	enc := json.NewEncoder(conn)
@@ -171,10 +176,15 @@ func (n *P2PNode) connectPeer(addr string) {
 	n.state.mu.RUnlock()
 
 	reply := P2PMessage{Type: "hello"}
-	replyPayload, _ := json.Marshal(map[string]interface{}{
+	replyPayload, err := json.Marshal(map[string]interface{}{
 		"node":         "CoCaX-Core",
+		"chain_id":     ChainID,
 		"chain_length": chainLen,
 	})
+	if err != nil {
+		log.Printf("[P2P] Failed to marshal hello payload: %v", err)
+		return
+	}
 	reply.Payload = replyPayload
 	if err := enc.Encode(reply); err != nil {
 		log.Printf("[P2P] Failed to send hello to %s: %v", addr, err)
