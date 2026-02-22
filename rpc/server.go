@@ -73,6 +73,9 @@ func jsonResponse(w http.ResponseWriter, status int, v interface{}) {
 	}
 }
 
+// extractAddress pulls an address from the query string (?address=) or by
+// trimming one of the provided path prefixes. It returns an empty string when
+// no address could be extracted.
 func extractAddress(r *http.Request, prefixes ...string) string {
 	// Prefer explicit query parameter.
 	if addr := strings.TrimSpace(r.URL.Query().Get("address")); addr != "" {
@@ -140,7 +143,7 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Filter the chain and mempool while holding a read lock to keep the view consistent.
+	// Acquire a read lock to filter the chain and mempool with a consistent view.
 	a.state.RLock()
 	chain := a.state.Chain
 	mempool := a.state.Mempool
