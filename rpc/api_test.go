@@ -34,10 +34,15 @@ type jsonRPCRequest struct {
 	ID      int         `json:"id"`
 }
 
+type jsonRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 type jsonRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
-	Error   json.RawMessage `json:"error"`
+	Error   *jsonRPCError   `json:"error"`
 	ID      int             `json:"id"`
 }
 
@@ -332,8 +337,8 @@ func TestTxSubmit_CoinbaseRejected(t *testing.T) {
 func TestJSONRPC_EthChainID(t *testing.T) {
 	srv, _ := newTestServer(t)
 	res := callJSONRPC(t, srv.URL, "eth_chainId", []string{})
-	if len(res.Error) != 0 {
-		t.Fatalf("unexpected error: %s", string(res.Error))
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %s", res.Error.Message)
 	}
 	var chainID string
 	if err := json.Unmarshal(res.Result, &chainID); err != nil {
@@ -347,8 +352,8 @@ func TestJSONRPC_EthChainID(t *testing.T) {
 func TestJSONRPC_NetVersion(t *testing.T) {
 	srv, _ := newTestServer(t)
 	res := callJSONRPC(t, srv.URL, "net_version", []string{})
-	if len(res.Error) != 0 {
-		t.Fatalf("unexpected error: %s", string(res.Error))
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %s", res.Error.Message)
 	}
 	var version string
 	if err := json.Unmarshal(res.Result, &version); err != nil {
@@ -362,8 +367,8 @@ func TestJSONRPC_NetVersion(t *testing.T) {
 func TestJSONRPC_EthBlockNumber(t *testing.T) {
 	srv, _ := newTestServer(t)
 	res := callJSONRPC(t, srv.URL, "eth_blockNumber", []string{})
-	if len(res.Error) != 0 {
-		t.Fatalf("unexpected error: %s", string(res.Error))
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %s", res.Error.Message)
 	}
 	var blockNum string
 	if err := json.Unmarshal(res.Result, &blockNum); err != nil {
@@ -380,8 +385,8 @@ func TestJSONRPC_EthGetBalance(t *testing.T) {
 	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 12.5, Nonce: 0}
 
 	res := callJSONRPC(t, srv.URL, "eth_getBalance", []string{addr})
-	if len(res.Error) != 0 {
-		t.Fatalf("unexpected error: %s", string(res.Error))
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %s", res.Error.Message)
 	}
 	var balanceHex string
 	if err := json.Unmarshal(res.Result, &balanceHex); err != nil {
@@ -414,8 +419,8 @@ func TestJSONRPC_EthSendRawTransaction(t *testing.T) {
 	rawHex := "0x" + hex.EncodeToString(rawBytes)
 
 	res := callJSONRPC(t, srv.URL, "eth_sendRawTransaction", []string{rawHex})
-	if len(res.Error) != 0 {
-		t.Fatalf("unexpected error: %s", string(res.Error))
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %s", res.Error.Message)
 	}
 	var txID string
 	if err := json.Unmarshal(res.Result, &txID); err != nil {
