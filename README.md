@@ -56,6 +56,37 @@ Where X and Y are the ECDSA P-256 public key coordinates, each left-padded to 32
 5. `fee` must be exactly **0.01 CoX**.
 6. Sender balance must be ≥ `amount + fee`.
 7. Coinbase transactions cannot be submitted via the API.
+8. A pending mempool transaction with the same `from` and `nonce` is rejected (prevents double spend attempts before block inclusion).
+
+### Signing standard (PoVS)
+- **Algorithm:** ECDSA over P-256 with SHA-256.
+- **Field order (exactly this):** `from`, `to`, `amount` (8dp), `fee` (8dp), `nonce`, `timestamp`.
+- **Encoding:** ASCII string, format  
+  `from=<addr>&to=<addr>&amount=<amount with 8 decimals>&fee=<fee with 8 decimals>&nonce=<uint>&timestamp=<int>`
+- **Signature fields:** `sig_r`, `sig_s` are hex; `pub_key_x`, `pub_key_y` are 32-byte padded hex coords.
+- The *same payload function* is used by the node (`core.TxSigningPayload`), wallet (`txSigningPayload`), and tests. Any mismatch will fail verification.
+
+#### Example payload + submission
+```
+payload = from=CoXabc...&to=CoXdef...&amount=1.00000000&fee=0.01000000&nonce=1&timestamp=1700000000
+sig_r   = <hex>
+sig_s   = <hex>
+```
+
+```
+curl -X POST http://localhost:8080/tx/submit -H "Content-Type: application/json" -d '{
+  "from": "CoXabc...",
+  "to": "CoXdef...",
+  "amount": 1,
+  "fee": 0.01,
+  "nonce": 1,
+  "timestamp": 1700000000,
+  "pub_key_x": "<64-hex>",
+  "pub_key_y": "<64-hex>",
+  "sig_r": "<hex>",
+  "sig_s": "<hex>"
+}'
+```
 
 ### Block Reward / Halving
 ```

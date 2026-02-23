@@ -255,6 +255,36 @@ func TestTxSubmit_MissingSignature(t *testing.T) {
 	}
 }
 
+func TestTxSubmit_InvalidSignature(t *testing.T) {
+	srv, cs := newTestServer(t)
+
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 10.0, Nonce: 0}
+
+	tx := core.Transaction{
+		From:      addr,
+		To:        "CoXrecipient000000000000000000000000000000000",
+		Amount:    1.0,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Unix(),
+	}
+	_ = core.SignTransaction(&tx, priv)
+	// Tamper after signing to force signature failure.
+	tx.Amount = 2.0
+
+	resp, err := submitTx(t, srv.URL, tx)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid signature, got %d", resp.StatusCode)
+	}
+}
+
 func TestTxSubmit_WrongFee(t *testing.T) {
 	srv, cs := newTestServer(t)
 
@@ -280,6 +310,47 @@ func TestTxSubmit_WrongFee(t *testing.T) {
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for wrong fee, got %d", resp.StatusCode)
+	}
+}
+
+func TestTxSubmit_DuplicateNonce(t *testing.T) {
+	srv, cs := newTestServer(t)
+
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs.Accounts[addr] = &core.Account{Address: addr, Balance: 10.0, Nonce: 0}
+
+	makeTx := func(amount float64) core.Transaction {
+		tx := core.Transaction{
+			From:      addr,
+			To:        "CoXrecipient000000000000000000000000000000000",
+			Amount:    amount,
+			Fee:       core.FixedFee,
+			Nonce:     1,
+			Timestamp: time.Now().Unix(),
+		}
+		_ = core.SignTransaction(&tx, priv)
+		return tx
+	}
+
+	firstTx := makeTx(1.0)
+	if resp, err := submitTx(t, srv.URL, firstTx); err != nil {
+		t.Fatalf("first submit failed: %v", err)
+	} else {
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected first tx accepted, got %d", resp.StatusCode)
+		}
+	}
+
+	secondTx := makeTx(2.0)
+	resp, err := submitTx(t, srv.URL, secondTx)
+	if err != nil {
+		t.Fatalf("second submit failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for duplicate nonce, got %d", resp.StatusCode)
 	}
 }
 
