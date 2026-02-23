@@ -88,14 +88,14 @@ func verifyBlockAgainstSnapshot(snap verificationSnapshot, block *Block) error {
 			if expectedSeq != 0 {
 				return fmt.Errorf("coinbase must be the first transaction")
 			}
-			if tx.Sequence != 0 {
+			if tx.SequenceNumber != 0 {
 				return fmt.Errorf("coinbase must have sequence 0")
 			}
 			expectedSeq = 1
 			continue
 		}
-		if tx.Sequence != expectedSeq {
-			return fmt.Errorf("tx sequence mismatch: got %d want %d", tx.Sequence, expectedSeq)
+		if tx.SequenceNumber != expectedSeq {
+			return fmt.Errorf("tx sequence mismatch: got %d want %d", tx.SequenceNumber, expectedSeq)
 		}
 		expectedSeq++
 		if err := VerifyTransaction(&tx); err != nil {
@@ -153,34 +153,21 @@ func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
 		}
 	}
 
-	window := int64(TargetBlockTime.Seconds())
-	commitment := TimedCommitment{
-		Validator:      miner,
-		CommitTime:     now.Unix(),
-		RevealDeadline: now.Unix() + window,
-		Window:         window,
-		Nonce:          fmt.Sprintf("%d", now.UnixNano()),
-	}
-
-	if now.Unix() > commitment.RevealDeadline {
-		return nil, fmt.Errorf("reveal deadline already passed")
-	}
-
 	coinbaseTx := Transaction{
-		ID:         fmt.Sprintf("coinbase-%d", blockIndex),
-		From:       "coinbase",
-		To:         miner,
-		Amount:     reward,
-		Fee:        0,
-		Nonce:      0,
-		Timestamp:  now.Unix(),
-		IsCoinbase: true,
-		Sequence:   0,
+		ID:             fmt.Sprintf("coinbase-%d", blockIndex),
+		From:           "coinbase",
+		To:             miner,
+		Amount:         reward,
+		Fee:            0,
+		Nonce:          0,
+		Timestamp:      now.Unix(),
+		IsCoinbase:     true,
+		SequenceNumber: 0,
 	}
 
 	txs := []Transaction{coinbaseTx}
 	for i := range mempool {
-		mempool[i].Sequence = uint64(i + 1)
+		mempool[i].SequenceNumber = uint64(i + 1)
 		txs = append(txs, mempool[i])
 	}
 
@@ -189,7 +176,6 @@ func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
 		PrevHash:     prev.Hash,
 		Timestamp:    now.Unix(),
 		Transactions: txs,
-		Commitment:   commitment,
 		Reward:       reward,
 		Miner:        miner,
 	}
@@ -257,6 +243,8 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 		firstErr      error
 	)
 
+	block.BlockVerifications = make(map[string]bool)
+
 	runVerifier := func(name string, fn BlockVerifier) {
 		wg.Add(1)
 		go func() {
@@ -275,6 +263,7 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 				votesAccepted++
 			}
 			results = append(results, res)
+			block.BlockVerifications[name] = res.Accepted
 		}()
 	}
 

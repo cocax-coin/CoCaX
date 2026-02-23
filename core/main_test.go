@@ -398,11 +398,11 @@ func TestCreateBlockTemplateAssignsSequences(t *testing.T) {
 	if len(block.Transactions) != 3 {
 		t.Fatalf("expected 3 transactions (coinbase + 2), got %d", len(block.Transactions))
 	}
-	if block.Transactions[0].Sequence != 0 || !block.Transactions[0].IsCoinbase {
-		t.Fatalf("expected coinbase at sequence 0, got seq=%d coinbase=%v", block.Transactions[0].Sequence, block.Transactions[0].IsCoinbase)
+	if block.Transactions[0].SequenceNumber != 0 || !block.Transactions[0].IsCoinbase {
+		t.Fatalf("expected coinbase at sequence 0, got seq=%d coinbase=%v", block.Transactions[0].SequenceNumber, block.Transactions[0].IsCoinbase)
 	}
-	if block.Transactions[1].Sequence != 1 || block.Transactions[2].Sequence != 2 {
-		t.Fatalf("unexpected sequences: got %d and %d", block.Transactions[1].Sequence, block.Transactions[2].Sequence)
+	if block.Transactions[1].SequenceNumber != 1 || block.Transactions[2].SequenceNumber != 2 {
+		t.Fatalf("unexpected sequences: got %d and %d", block.Transactions[1].SequenceNumber, block.Transactions[2].SequenceNumber)
 	}
 }
 
@@ -472,25 +472,25 @@ func TestAddBlockRejectsDuplicateNonceAndPenalises(t *testing.T) {
 	}
 
 	tx1 := core.Transaction{
-		From:      senderAddr,
-		To:        "CoXdouble0000000000000000000000000000000000",
-		Amount:    1.0,
-		Fee:       core.FixedFee,
-		Nonce:     1,
-		Timestamp: time.Now().Unix(),
-		Sequence:  1,
+		From:           senderAddr,
+		To:             "CoXdouble0000000000000000000000000000000000",
+		Amount:         1.0,
+		Fee:            core.FixedFee,
+		Nonce:          1,
+		Timestamp:      time.Now().Unix(),
+		SequenceNumber: 1,
 	}
 	_ = core.SignTransaction(&tx1, senderPriv)
 	tx1.ID = core.TxID(&tx1)
 
 	tx2 := core.Transaction{
-		From:      tx1.From,
-		To:        tx1.To,
-		Amount:    tx1.Amount,
-		Fee:       tx1.Fee,
-		Nonce:     tx1.Nonce,
-		Timestamp: tx1.Timestamp + 1,
-		Sequence:  2,
+		From:           tx1.From,
+		To:             tx1.To,
+		Amount:         tx1.Amount,
+		Fee:            tx1.Fee,
+		Nonce:          tx1.Nonce,
+		Timestamp:      tx1.Timestamp + 1,
+		SequenceNumber: 2,
 	}
 	_ = core.SignTransaction(&tx2, senderPriv)
 	tx2.ID = core.TxID(&tx2)

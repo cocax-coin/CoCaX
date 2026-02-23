@@ -63,14 +63,12 @@ reward(blockIndex) = 3.3 / 2^(blockIndex / 1_000_000)
 ```
 Total supply is hard-capped at 33,000,000 CoX.
 
-### PoTC (Lightweight Proof-of-Timed-Commitment)
-Each block includes a `TimedCommitment` with `validator`, `commit_time`, `reveal_deadline`, `window`, and `nonce`. Block creation is rejected if the reveal deadline has already passed.
-
-### PoVS (Parallel Validation + Slashing)
-- Blocks are verified in parallel by the local node and optional peers (majority vote required).
-- Every mined block records its `verifications` array (peer name, accepted flag, reason).
-- The miner is **slashed** (their reward is burned) if the block is rejected by the majority.
-- Coinbase must appear at `sequence = 0`; other transactions are auto-assigned contiguous `sequence` values when the block template is built (hashing includes `sequence` to lock ordering).
+### PoVS (Proof-of-Verified-Sequence)
+- Sequenced transactions with digital signatures.
+- Parallel block verification by multiple peers with majority voting.
+- `verified_signatures` per transaction and `block_verifications` per block capture peer votes.
+- Automatic reward distribution on acceptance and penalty (slashing) on rejection.
+- Full resistance against double-spend and forks via strict sequencing and signature checks.
 
 ---
 
@@ -93,8 +91,8 @@ curl http://localhost:8080/balance/CoX_FOUNDER_PLACEHOLDER_UPDATE_ME
 
 ### GET `/blocks`
 Returns the full blockchain as a JSON array. Blocks now include:
-- `commitment` (PoTC), `verifications` (PoVS votes), and optional `memo`
-- `transactions` entries with `is_coinbase` and `sequence` fields (coinbase is always sequence `0`)
+- `block_verifications` (peer vote map), `verifications` (detailed votes), and optional `memo`
+- `transactions` entries with `is_coinbase`, `sequence_number`, and optional `verified_signatures` (coinbase is always sequence `0`)
 
 ```bash
 curl http://localhost:8080/blocks
@@ -338,7 +336,7 @@ Or open the wallet UI at **`http://localhost:8080/`** and log in with your mnemo
 1. **P2P sync** – Peers exchange a handshake but full block synchronisation (chain download/merge) is not implemented. The P2P layer is functional for future extension.
 2. **Mnemonic compatibility** – The 256-word list is a simplified subset; it is *not* BIP-39 compatible (different word list and no checksum). Keys derived from the same mnemonic phrase will always be consistent within CoXaNa.
 3. **Single-node mempool** – The mempool is in-memory only. Submitted transactions are not broadcast to peers.
-4. **No PoW / PoS** – Block creation is permissioned via the `-miner` flag (intended as a lightweight PoTC demo).
+4. **PoVS consensus** – Block creation remains permissioned via the `-miner` flag for the demo; blocks are verified by peers using Proof-of-Verified-Sequence voting.
 
 ---
 

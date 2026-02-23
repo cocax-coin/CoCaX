@@ -23,44 +23,36 @@ const (
 
 // Transaction represents a signed CoCaX transaction.
 type Transaction struct {
-	ID         string  `json:"id"`
-	From       string  `json:"from"`
-	To         string  `json:"to"`
-	Amount     float64 `json:"amount"`
-	Fee        float64 `json:"fee"`
-	Nonce      uint64  `json:"nonce"`
-	Timestamp  int64   `json:"timestamp"`
-	PubKeyX    string  `json:"pub_key_x,omitempty"`
-	PubKeyY    string  `json:"pub_key_y,omitempty"`
-	SigR       string  `json:"sig_r,omitempty"`
-	SigS       string  `json:"sig_s,omitempty"`
-	IsCoinbase bool    `json:"is_coinbase"`
-	Memo       string  `json:"memo,omitempty"`
-	Sequence   uint64  `json:"sequence,omitempty"`
-}
-
-// TimedCommitment represents a lightweight PoTC commitment stored in a block.
-type TimedCommitment struct {
-	Validator      string `json:"validator"`
-	CommitTime     int64  `json:"commit_time"`
-	RevealDeadline int64  `json:"reveal_deadline"`
-	Window         int64  `json:"window"`
-	Nonce          string `json:"nonce"`
+	ID                 string            `json:"id"`
+	From               string            `json:"from"`
+	To                 string            `json:"to"`
+	Amount             float64           `json:"amount"`
+	Fee                float64           `json:"fee"`
+	Nonce              uint64            `json:"nonce"`
+	Timestamp          int64             `json:"timestamp"`
+	PubKeyX            string            `json:"pub_key_x,omitempty"`
+	PubKeyY            string            `json:"pub_key_y,omitempty"`
+	SigR               string            `json:"sig_r,omitempty"`
+	SigS               string            `json:"sig_s,omitempty"`
+	IsCoinbase         bool              `json:"is_coinbase"`
+	Memo               string            `json:"memo,omitempty"`
+	SequenceNumber     uint64            `json:"sequence_number,omitempty"`
+	VerifiedSignatures map[string]string `json:"verified_signatures,omitempty"`
 }
 
 // Block represents a block in the CoCaX chain.
 type Block struct {
-	Index         uint64              `json:"index"`
-	PrevHash      string              `json:"prev_hash"`
-	Hash          string              `json:"hash"`
-	Timestamp     int64               `json:"timestamp"`
-	Transactions  []Transaction       `json:"transactions"`
-	Commitment    TimedCommitment     `json:"commitment"`
-	Reward        float64             `json:"reward"`
-	Miner         string              `json:"miner"`
-	Memo          string              `json:"memo,omitempty"`
-	Verifications []BlockVerification `json:"verifications,omitempty"`
-	CrossSigs     map[string]string   `json:"cross_sigs,omitempty"` // optional peer signatures for PoVS
+	Index              uint64              `json:"index"`
+	PrevHash           string              `json:"prev_hash"`
+	Hash               string              `json:"hash"`
+	Timestamp          int64               `json:"timestamp"`
+	Transactions       []Transaction       `json:"transactions"`
+	Reward             float64             `json:"reward"`
+	Miner              string              `json:"miner"`
+	Memo               string              `json:"memo,omitempty"`
+	Verifications      []BlockVerification `json:"verifications,omitempty"`
+	CrossSigs          map[string]string   `json:"cross_sigs,omitempty"` // optional peer signatures for PoVS
+	BlockVerifications map[string]bool     `json:"block_verifications"`
 }
 
 // BlockVerification captures a peer's validation vote for a block.
