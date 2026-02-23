@@ -37,7 +37,7 @@ type Transaction struct {
 	IsCoinbase         bool              `json:"is_coinbase"`
 	Memo               string            `json:"memo,omitempty"`
 	SequenceNumber     uint64            `json:"sequence_number,omitempty"`
-	VerifiedSignatures map[string]string `json:"verified_signatures,omitempty"`
+	VerifiedSignatures map[string]string `json:"verified_signatures,omitempty"` // peer_id -> signature
 }
 
 // Block represents a block in the CoCaX chain.
@@ -52,7 +52,7 @@ type Block struct {
 	Memo               string              `json:"memo,omitempty"`
 	Verifications      []BlockVerification `json:"verifications,omitempty"`
 	CrossSigs          map[string]string   `json:"cross_sigs,omitempty"` // optional peer signatures for PoVS
-	BlockVerifications map[string]bool     `json:"block_verifications"`
+	BlockVerifications map[string]bool     `json:"block_verifications,omitempty"`
 }
 
 // BlockVerification captures a peer's validation vote for a block.

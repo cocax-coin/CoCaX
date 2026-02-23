@@ -243,7 +243,9 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 		firstErr      error
 	)
 
-	block.BlockVerifications = make(map[string]bool)
+	if block.BlockVerifications == nil {
+		block.BlockVerifications = make(map[string]bool)
+	}
 
 	runVerifier := func(name string, fn BlockVerifier) {
 		wg.Add(1)
