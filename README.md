@@ -62,7 +62,7 @@ Where X and Y are the ECDSA P-256 public key coordinates, each left-padded to 32
 - **Algorithm:** ECDSA over P-256 with SHA-256.
 - **Field order (exactly this):** `from`, `to`, `amount` (8dp), `fee` (8dp), `nonce`, `timestamp`.
 - **Encoding:** ASCII string, format  
-  `from=<addr>&to=<addr>&amount=<%.8f>&fee=<%.8f>&nonce=<uint>&timestamp=<int>`
+  `from=<addr>&to=<addr>&amount=<amount with 8 decimals>&fee=<fee with 8 decimals>&nonce=<uint>&timestamp=<int>`
 - **Signature fields:** `sig_r`, `sig_s` are hex; `pub_key_x`, `pub_key_y` are 32-byte padded hex coords.
 - The *same payload function* is used by the node (`core.TxSigningPayload`), wallet (`txSigningPayload`), and tests. Any mismatch will fail verification.
 
