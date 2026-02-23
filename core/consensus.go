@@ -263,7 +263,6 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 				votesAccepted++
 			}
 			results = append(results, res)
-			block.BlockVerifications[name] = res.Accepted
 		}()
 	}
 
@@ -276,6 +275,9 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 	}
 
 	wg.Wait()
+	for _, r := range results {
+		block.BlockVerifications[r.Peer] = r.Accepted
+	}
 	block.Verifications = results
 
 	totalVotes := len(verifiers) + 1
