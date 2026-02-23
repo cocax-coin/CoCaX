@@ -105,19 +105,11 @@ func buildGenesisBlock(founderAddr string) Block {
 		IsCoinbase: true,
 		Memo:       GenesisMessage,
 	}
-	commitment := TimedCommitment{
-		Validator:      "genesis",
-		CommitTime:     now,
-		RevealDeadline: now + int64(TargetBlockTime.Seconds()),
-		Window:         int64(TargetBlockTime.Seconds()),
-		Nonce:          "genesis_nonce_0",
-	}
 	block := Block{
 		Index:        0,
 		PrevHash:     "0000000000000000000000000000000000000000000000000000000000000000",
 		Timestamp:    now,
 		Transactions: []Transaction{genesisTx},
-		Commitment:   commitment,
 		Reward:       0,
 		Miner:        "genesis",
 		Memo:         GenesisMessage,

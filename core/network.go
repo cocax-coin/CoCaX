@@ -25,13 +25,15 @@ type P2PMessage struct {
 
 // VerifyBlockRequest is sent to peers for PoVS validation.
 type VerifyBlockRequest struct {
-	Block Block `json:"block"`
+	BlockID   string `json:"block_id"`
+	BlockData Block  `json:"block_data"`
 }
 
 // VerifyBlockResponse returns a peer's validation vote.
 type VerifyBlockResponse struct {
-	Accepted bool   `json:"accepted"`
-	Reason   string `json:"reason,omitempty"`
+	BlockID string `json:"block_id"`
+	Accept  bool   `json:"accept"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // NewP2PNode creates a new P2PNode.
@@ -124,12 +126,12 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 			log.Printf("[P2P] Failed to decode verify request: %v", err)
 			return
 		}
-		err := VerifyBlock(n.state, &req.Block)
+		err := VerifyBlock(n.state, &req.BlockData)
 		if err != nil {
 			log.Printf("[P2P] verify_block failed: %v", err)
 		}
 		resp := P2PMessage{Type: "verify_block_response"}
-		body := VerifyBlockResponse{Accepted: err == nil}
+		body := VerifyBlockResponse{BlockID: req.BlockID, Accept: err == nil}
 		if err != nil {
 			body.Reason = err.Error()
 		}
