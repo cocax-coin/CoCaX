@@ -228,6 +228,11 @@ func (a *Server) validateAndAddTx(tx *core.Transaction) error {
 	if !ok {
 		sender = &core.Account{Address: tx.From, Balance: 0, Nonce: 0}
 	}
+	for _, pending := range a.state.Mempool {
+		if pending.From == tx.From && pending.Nonce == tx.Nonce {
+			return fmt.Errorf("duplicate nonce in mempool for %s: already have tx %s", tx.From, pending.ID)
+		}
+	}
 	if tx.Nonce != sender.Nonce+1 {
 		return fmt.Errorf("nonce mismatch: expected %d, got %d", sender.Nonce+1, tx.Nonce)
 	}
