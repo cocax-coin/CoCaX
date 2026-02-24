@@ -337,6 +337,8 @@ func (a *Server) computeTxCount(chain []core.Block) int {
 
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
+	// Re-check after acquiring the write lock in case another goroutine updated
+	// the cache while we were waiting.
 	if height == a.cachedHeight {
 		return a.cachedTxCount
 	}
@@ -364,7 +366,7 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "limit must be a positive integer"})
 			return
 		case parsed > maxAuditLimit:
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("limit exceeds maximum of %d", maxAuditLimit)})
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("limit must be between 1 and %d", maxAuditLimit)})
 			return
 		default:
 			limit = parsed
