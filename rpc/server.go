@@ -327,6 +327,11 @@ func (a *Server) computeTxCount(chain []core.Block) int {
 	if height == a.cachedHeight {
 		return a.cachedTxCount
 	}
+	if height == a.cachedHeight+1 && height > 0 {
+		a.cachedTxCount += len(chain[height-1].Transactions)
+		a.cachedHeight = height
+		return a.cachedTxCount
+	}
 	count := 0
 	for _, blk := range chain {
 		count += len(blk.Transactions)
