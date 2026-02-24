@@ -30,6 +30,11 @@ type Server struct {
 // building transaction response lists. Tuned for typical wallet dashboard usage.
 const smallSliceHint = 32
 
+const (
+	defaultAuditLimit = 50
+	maxAuditLimit     = 1000
+)
+
 type txWithMeta struct {
 	core.Transaction
 	BlockIndex uint64 `json:"block_index,omitempty"`
@@ -322,6 +327,14 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // caching the result while the chain height remains unchanged.
 func (a *Server) computeTxCount(chain []core.Block) int {
 	height := len(chain)
+	a.cacheMu.RLock()
+	if height == a.cachedHeight {
+		count := a.cachedTxCount
+		a.cacheMu.RUnlock()
+		return count
+	}
+	a.cacheMu.RUnlock()
+
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
 	if height == a.cachedHeight {
@@ -343,15 +356,15 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
+	limit := defaultAuditLimit
 	if q := strings.TrimSpace(r.URL.Query().Get("limit")); q != "" {
 		parsed, err := strconv.Atoi(q)
 		switch {
 		case err != nil || parsed <= 0:
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
 			return
-		case parsed > 1000:
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "limit exceeds maximum of 1000"})
+		case parsed > maxAuditLimit:
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("limit exceeds maximum of %d", maxAuditLimit)})
 			return
 		default:
 			limit = parsed
