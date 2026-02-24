@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,11 +19,21 @@ type Server struct {
 	state   *core.ChainState
 	dataDir string
 	miner   string
+	peers   []string
+
+	cacheMu       sync.RWMutex
+	cachedHeight  int
+	cachedTxCount int
 }
 
 // smallSliceHint provides a modest preallocation to reduce reallocations when
 // building transaction response lists. Tuned for typical wallet dashboard usage.
 const smallSliceHint = 32
+
+const (
+	defaultAuditLimit = 50
+	maxAuditLimit     = 1000
+)
 
 type txWithMeta struct {
 	core.Transaction
@@ -32,8 +43,13 @@ type txWithMeta struct {
 }
 
 // NewServer creates a new RPC server.
-func NewServer(state *core.ChainState, dataDir, miner string) *Server {
-	return &Server{state: state, dataDir: dataDir, miner: miner}
+func NewServer(state *core.ChainState, dataDir, miner string, peers ...string) *Server {
+	return &Server{
+		state:   state,
+		dataDir: dataDir,
+		miner:   miner,
+		peers:   append([]string{}, peers...),
+	}
 }
 
 // Router builds and returns the HTTP handler with CORS middleware applied.
@@ -50,6 +66,10 @@ func (a *Server) Router() http.Handler {
 	mux.HandleFunc("/api/transactions/", a.handleTransactions)
 	mux.HandleFunc("/tx/submit", a.handleTxSubmit)
 	mux.HandleFunc("/blocks", a.handleBlocks)
+	mux.HandleFunc("/status", a.handleStatus)
+	mux.HandleFunc("/api/status", a.handleStatus)
+	mux.HandleFunc("/audit", a.handleAudit)
+	mux.HandleFunc("/api/audit", a.handleAudit)
 	mux.HandleFunc("/mine", a.handleMine)
 	mux.HandleFunc("/rpc", a.handleJSONRPC)
 	return corsMiddleware(mux)
@@ -261,6 +281,121 @@ func (a *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 	copy(chain, a.state.Chain)
 	a.state.RUnlock()
 	jsonResponse(w, http.StatusOK, chain)
+}
+
+// handleStatus exposes a lightweight dashboard-friendly chain summary.
+func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	a.state.RLock()
+	chain := make([]core.Block, len(a.state.Chain))
+	copy(chain, a.state.Chain)
+	mempool := len(a.state.Mempool)
+	minted := a.state.MintedSupply
+	a.state.RUnlock()
+
+	txCount := a.computeTxCount(chain)
+	blocks := len(chain)
+	var latest core.Block
+	if blocks > 0 {
+		latest = chain[blocks-1]
+	}
+
+	resp := map[string]interface{}{
+		"chain_id":         core.ChainID,
+		"blocks":           blocks,
+		"transactions":     txCount,
+		"mempool_size":     mempool,
+		"minted_supply":    minted,
+		"peers_configured": len(a.peers),
+	}
+	if blocks > 0 {
+		resp["latest_block"] = map[string]interface{}{
+			"index":     latest.Index,
+			"hash":      latest.Hash,
+			"timestamp": latest.Timestamp,
+			"txs":       len(latest.Transactions),
+		}
+	}
+	jsonResponse(w, http.StatusOK, resp)
+}
+
+// computeTxCount returns the total number of transactions across the chain,
+// caching the result while the chain height remains unchanged.
+func (a *Server) computeTxCount(chain []core.Block) int {
+	height := len(chain)
+	a.cacheMu.RLock()
+	if height == a.cachedHeight {
+		count := a.cachedTxCount
+		a.cacheMu.RUnlock()
+		return count
+	}
+	a.cacheMu.RUnlock()
+
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	// Re-check after acquiring the write lock in case another goroutine updated
+	// the cache while we were waiting.
+	if height == a.cachedHeight {
+		return a.cachedTxCount
+	}
+	count := 0
+	for _, blk := range chain {
+		count += len(blk.Transactions)
+	}
+	a.cachedHeight = height
+	a.cachedTxCount = count
+	return count
+}
+
+// handleAudit returns per-block verification metadata to aid debugging.
+func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	limit := defaultAuditLimit
+	if q := strings.TrimSpace(r.URL.Query().Get("limit")); q != "" {
+		parsed, err := strconv.Atoi(q)
+		switch {
+		case err != nil || parsed <= 0:
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "limit must be greater than zero"})
+			return
+		case parsed > maxAuditLimit:
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("limit must not exceed %d", maxAuditLimit)})
+			return
+		default:
+			limit = parsed
+		}
+	}
+
+	a.state.RLock()
+	chainLen := len(a.state.Chain)
+	start := 0
+	if limit < chainLen {
+		start = chainLen - limit
+	}
+	chain := make([]core.Block, chainLen-start)
+	copy(chain, a.state.Chain[start:])
+	a.state.RUnlock()
+
+	audit := make([]map[string]interface{}, 0, len(chain))
+	for _, blk := range chain {
+		audit = append(audit, map[string]interface{}{
+			"index":               blk.Index,
+			"hash":                blk.Hash,
+			"prev_hash":           blk.PrevHash,
+			"timestamp":           blk.Timestamp,
+			"txs":                 len(blk.Transactions),
+			"verifications":       blk.Verifications,
+			"block_verifications": blk.BlockVerifications,
+		})
+	}
+	jsonResponse(w, http.StatusOK, audit)
 }
 
 // handleMine serves POST /mine – mines a single block from the current mempool.
