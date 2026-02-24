@@ -540,7 +540,11 @@ func TestStatusEndpoint_ReturnsChainSummary(t *testing.T) {
 	if body["blocks"] != float64(len(cs.Chain)) {
 		t.Fatalf("blocks mismatch: %v", body["blocks"])
 	}
-	if body["transactions"] != float64(len(cs.Chain[0].Transactions)+len(customBlock.Transactions)) {
+	var expectedTx uint64
+	for _, blk := range cs.Chain {
+		expectedTx += uint64(len(blk.Transactions))
+	}
+	if body["transactions"] != float64(expectedTx) {
 		t.Fatalf("transactions mismatch: %v", body["transactions"])
 	}
 	if body["mempool_size"] != float64(len(cs.Mempool)) {

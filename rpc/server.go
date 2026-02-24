@@ -361,7 +361,7 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		parsed, err := strconv.Atoi(q)
 		switch {
 		case err != nil || parsed <= 0:
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "limit must be a positive integer"})
 			return
 		case parsed > maxAuditLimit:
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("limit exceeds maximum of %d", maxAuditLimit)})
