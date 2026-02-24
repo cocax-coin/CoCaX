@@ -290,9 +290,9 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	copy(chain, a.state.Chain)
 	mempool := len(a.state.Mempool)
 	minted := a.state.MintedSupply
-	txCount := a.computeTxCount(chain)
 	a.state.RUnlock()
 
+	txCount := a.computeTxCount(chain)
 	blocks := len(chain)
 	var latest core.Block
 	if blocks > 0 {
@@ -356,7 +356,7 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
 			return
 		case parsed > 1000:
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "limit too large"})
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "limit exceeds maximum of 1000"})
 			return
 		default:
 			limit = parsed
