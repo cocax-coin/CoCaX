@@ -286,15 +286,18 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.state.RLock()
-	blocks := len(a.state.Chain)
+	chain := make([]core.Block, len(a.state.Chain))
+	copy(chain, a.state.Chain)
 	mempool := len(a.state.Mempool)
 	minted := a.state.MintedSupply
-	txCount := a.computeTxCountLocked(a.state.Chain)
+	a.state.RUnlock()
+
+	blocks := len(chain)
+	txCount := a.computeTxCount(chain)
 	var latest core.Block
 	if blocks > 0 {
-		latest = a.state.Chain[blocks-1]
+		latest = chain[blocks-1]
 	}
-	a.state.RUnlock()
 
 	resp := map[string]interface{}{
 		"chain_id":         core.ChainID,
@@ -315,10 +318,9 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, resp)
 }
 
-// computeTxCountLocked returns the total number of transactions across the chain,
-// caching the result while the chain height remains unchanged. Caller must hold
-// the state read lock when invoking this helper.
-func (a *Server) computeTxCountLocked(chain []core.Block) int {
+// computeTxCount returns the total number of transactions across the chain,
+// caching the result while the chain height remains unchanged.
+func (a *Server) computeTxCount(chain []core.Block) int {
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
 	height := len(chain)
@@ -343,9 +345,12 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 
 	limit := 50
 	if q := strings.TrimSpace(r.URL.Query().Get("limit")); q != "" {
-		if parsed, err := strconv.Atoi(q); err == nil && parsed > 0 {
-			limit = parsed
+		parsed, err := strconv.Atoi(q)
+		if err != nil || parsed <= 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+			return
 		}
+		limit = parsed
 	}
 
 	a.state.RLock()
