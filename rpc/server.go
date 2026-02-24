@@ -48,7 +48,7 @@ func NewServer(state *core.ChainState, dataDir, miner string, peers ...string) *
 		state:   state,
 		dataDir: dataDir,
 		miner:   miner,
-		peers:   append([]string(nil), peers...),
+		peers:   append([]string{}, peers...),
 	}
 }
 
