@@ -129,6 +129,12 @@ Returns the full blockchain as a JSON array. Blocks now include:
 curl http://localhost:8080/blocks
 ```
 
+### GET `/status`
+Lightweight dashboard summary with chain ID, block/transaction counts, mempool size, minted supply, latest block hash/index/timestamp, and configured peer count.
+
+### GET `/audit`
+Returns an array of per-block audit metadata (hashes, timestamps, verification results) to simplify debugging and Testnet monitoring.
+
 ### POST `/tx/submit`
 Submits a signed transaction to the mempool.
 

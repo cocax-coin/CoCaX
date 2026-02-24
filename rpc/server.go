@@ -18,6 +18,7 @@ type Server struct {
 	state   *core.ChainState
 	dataDir string
 	miner   string
+	peers   []string
 }
 
 // smallSliceHint provides a modest preallocation to reduce reallocations when
@@ -32,8 +33,13 @@ type txWithMeta struct {
 }
 
 // NewServer creates a new RPC server.
-func NewServer(state *core.ChainState, dataDir, miner string) *Server {
-	return &Server{state: state, dataDir: dataDir, miner: miner}
+func NewServer(state *core.ChainState, dataDir, miner string, peers ...string) *Server {
+	return &Server{
+		state:   state,
+		dataDir: dataDir,
+		miner:   miner,
+		peers:   append([]string(nil), peers...),
+	}
 }
 
 // Router builds and returns the HTTP handler with CORS middleware applied.
@@ -50,6 +56,10 @@ func (a *Server) Router() http.Handler {
 	mux.HandleFunc("/api/transactions/", a.handleTransactions)
 	mux.HandleFunc("/tx/submit", a.handleTxSubmit)
 	mux.HandleFunc("/blocks", a.handleBlocks)
+	mux.HandleFunc("/status", a.handleStatus)
+	mux.HandleFunc("/api/status", a.handleStatus)
+	mux.HandleFunc("/audit", a.handleAudit)
+	mux.HandleFunc("/api/audit", a.handleAudit)
 	mux.HandleFunc("/mine", a.handleMine)
 	mux.HandleFunc("/rpc", a.handleJSONRPC)
 	return corsMiddleware(mux)
@@ -261,6 +271,72 @@ func (a *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 	copy(chain, a.state.Chain)
 	a.state.RUnlock()
 	jsonResponse(w, http.StatusOK, chain)
+}
+
+// handleStatus exposes a lightweight dashboard-friendly chain summary.
+func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	a.state.RLock()
+	blocks := len(a.state.Chain)
+	mempool := len(a.state.Mempool)
+	minted := a.state.MintedSupply
+	txCount := 0
+	var latest core.Block
+	if blocks > 0 {
+		latest = a.state.Chain[blocks-1]
+		for _, blk := range a.state.Chain {
+			txCount += len(blk.Transactions)
+		}
+	}
+	a.state.RUnlock()
+
+	resp := map[string]interface{}{
+		"chain_id":         core.ChainID,
+		"blocks":           blocks,
+		"transactions":     txCount,
+		"mempool_size":     mempool,
+		"minted_supply":    minted,
+		"peers_configured": len(a.peers),
+	}
+	if blocks > 0 {
+		resp["latest_block"] = map[string]interface{}{
+			"index":     latest.Index,
+			"hash":      latest.Hash,
+			"timestamp": latest.Timestamp,
+			"txs":       len(latest.Transactions),
+		}
+	}
+	jsonResponse(w, http.StatusOK, resp)
+}
+
+// handleAudit returns per-block verification metadata to aid debugging.
+func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	a.state.RLock()
+	chain := make([]core.Block, len(a.state.Chain))
+	copy(chain, a.state.Chain)
+	a.state.RUnlock()
+
+	audit := make([]map[string]interface{}, 0, len(chain))
+	for _, blk := range chain {
+		audit = append(audit, map[string]interface{}{
+			"index":               blk.Index,
+			"hash":                blk.Hash,
+			"prev_hash":           blk.PrevHash,
+			"timestamp":           blk.Timestamp,
+			"txs":                 len(blk.Transactions),
+			"verifications":       blk.Verifications,
+			"block_verifications": blk.BlockVerifications,
+		})
+	}
+	jsonResponse(w, http.StatusOK, audit)
 }
 
 // handleMine serves POST /mine – mines a single block from the current mempool.

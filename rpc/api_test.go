@@ -506,3 +506,94 @@ func TestJSONRPC_EthSendRawTransaction(t *testing.T) {
 	}
 	cs.RUnlock()
 }
+
+func TestStatusEndpoint_ReturnsChainSummary(t *testing.T) {
+	srv, cs := newTestServer(t)
+
+	// Add a synthetic block and adjust minted supply for deterministic assertions.
+	customBlock := core.Block{
+		Index:        1,
+		Hash:         "hash-block-1",
+		PrevHash:     cs.Chain[len(cs.Chain)-1].Hash,
+		Timestamp:    time.Now().Unix(),
+		Transactions: []core.Transaction{{ID: "tx-1"}, {ID: "tx-2"}},
+	}
+	cs.Chain = append(cs.Chain, customBlock)
+	cs.MintedSupply = 123.45
+	cs.Mempool = []core.Transaction{{ID: "pending-1"}}
+
+	resp, err := http.Get(srv.URL + "/status")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["chain_id"] != float64(core.ChainID) {
+		t.Fatalf("chain_id mismatch: %v", body["chain_id"])
+	}
+	if body["blocks"] != float64(len(cs.Chain)) {
+		t.Fatalf("blocks mismatch: %v", body["blocks"])
+	}
+	if body["transactions"] != float64(len(cs.Chain[0].Transactions)+len(customBlock.Transactions)) {
+		t.Fatalf("transactions mismatch: %v", body["transactions"])
+	}
+	if body["mempool_size"] != float64(len(cs.Mempool)) {
+		t.Fatalf("mempool_size mismatch: %v", body["mempool_size"])
+	}
+	if body["minted_supply"] != cs.MintedSupply {
+		t.Fatalf("minted_supply mismatch: %v", body["minted_supply"])
+	}
+	latest, ok := body["latest_block"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("latest_block missing or wrong type: %T", body["latest_block"])
+	}
+	if latest["index"] != float64(customBlock.Index) || latest["hash"] != customBlock.Hash {
+		t.Fatalf("latest_block mismatch: %+v", latest)
+	}
+}
+
+func TestAuditEndpoint_ReturnsVerifications(t *testing.T) {
+	srv, cs := newTestServer(t)
+
+	blockWithAudit := core.Block{
+		Index:              1,
+		Hash:               "hash-audit-1",
+		PrevHash:           cs.Chain[0].Hash,
+		Transactions:       []core.Transaction{{ID: "tx-audit"}},
+		Verifications:      []core.BlockVerification{{Peer: "local", Accepted: true}},
+		BlockVerifications: map[string]bool{"local": true},
+	}
+	cs.Chain = append(cs.Chain, blockWithAudit)
+
+	resp, err := http.Get(srv.URL + "/audit")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body) != len(cs.Chain) {
+		t.Fatalf("audit length mismatch: want %d, got %d", len(cs.Chain), len(body))
+	}
+	last := body[len(body)-1]
+	if last["hash"] != blockWithAudit.Hash || last["index"] != float64(blockWithAudit.Index) {
+		t.Fatalf("audit entry mismatch: %+v", last)
+	}
+	if _, ok := last["verifications"]; !ok {
+		t.Fatalf("verifications missing in audit entry")
+	}
+	if _, ok := last["block_verifications"]; !ok {
+		t.Fatalf("block_verifications missing in audit entry")
+	}
+}
