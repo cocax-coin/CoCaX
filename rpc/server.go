@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,6 +20,10 @@ type Server struct {
 	dataDir string
 	miner   string
 	peers   []string
+
+	cacheMu       sync.Mutex
+	cachedHeight  int
+	cachedTxCount int
 }
 
 // smallSliceHint provides a modest preallocation to reduce reallocations when
@@ -284,13 +289,10 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	blocks := len(a.state.Chain)
 	mempool := len(a.state.Mempool)
 	minted := a.state.MintedSupply
-	txCount := 0
+	txCount := a.computeTxCountLocked(a.state.Chain)
 	var latest core.Block
 	if blocks > 0 {
 		latest = a.state.Chain[blocks-1]
-		for _, blk := range a.state.Chain {
-			txCount += len(blk.Transactions)
-		}
 	}
 	a.state.RUnlock()
 
@@ -313,15 +315,47 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, resp)
 }
 
+// computeTxCountLocked returns the total number of transactions across the chain,
+// caching the result while the chain height remains unchanged. Caller must hold
+// the state read lock when invoking this helper.
+func (a *Server) computeTxCountLocked(chain []core.Block) int {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+	height := len(chain)
+	if height == a.cachedHeight {
+		return a.cachedTxCount
+	}
+	count := 0
+	for _, blk := range chain {
+		count += len(blk.Transactions)
+	}
+	a.cachedHeight = height
+	a.cachedTxCount = count
+	return count
+}
+
 // handleAudit returns per-block verification metadata to aid debugging.
 func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+
+	limit := 50
+	if q := strings.TrimSpace(r.URL.Query().Get("limit")); q != "" {
+		if parsed, err := strconv.Atoi(q); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
 	a.state.RLock()
-	chain := make([]core.Block, len(a.state.Chain))
-	copy(chain, a.state.Chain)
+	chainLen := len(a.state.Chain)
+	start := 0
+	if limit < chainLen {
+		start = chainLen - limit
+	}
+	chain := make([]core.Block, chainLen-start)
+	copy(chain, a.state.Chain[start:])
 	a.state.RUnlock()
 
 	audit := make([]map[string]interface{}, 0, len(chain))

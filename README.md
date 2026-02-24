@@ -133,7 +133,7 @@ curl http://localhost:8080/blocks
 Lightweight dashboard summary with chain ID, block/transaction counts, mempool size, minted supply, latest block hash/index/timestamp, and configured peer count.
 
 ### GET `/audit`
-Returns an array of per-block audit metadata (hashes, timestamps, verification results) to simplify debugging and Testnet monitoring.
+Returns an array of per-block audit metadata (hashes, timestamps, verification results) to simplify debugging and Testnet monitoring. Use `?limit=<n>` to restrict the response to the most recent blocks (default: 50).
 
 ### POST `/tx/submit`
 Submits a signed transaction to the mempool.
