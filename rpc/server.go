@@ -21,7 +21,7 @@ type Server struct {
 	miner   string
 	peers   []string
 
-	cacheMu       sync.Mutex
+	cacheMu       sync.RWMutex
 	cachedHeight  int
 	cachedTxCount int
 }
@@ -290,9 +290,9 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	copy(chain, a.state.Chain)
 	mempool := len(a.state.Mempool)
 	minted := a.state.MintedSupply
+	txCount := a.computeTxCount(chain)
 	a.state.RUnlock()
 
-	txCount := a.computeTxCount(chain)
 	blocks := len(chain)
 	var latest core.Block
 	if blocks > 0 {
@@ -321,9 +321,17 @@ func (a *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // computeTxCount returns the total number of transactions across the chain,
 // caching the result while the chain height remains unchanged.
 func (a *Server) computeTxCount(chain []core.Block) int {
+	height := len(chain)
+	a.cacheMu.RLock()
+	if height == a.cachedHeight {
+		count := a.cachedTxCount
+		a.cacheMu.RUnlock()
+		return count
+	}
+	a.cacheMu.RUnlock()
+
 	a.cacheMu.Lock()
 	defer a.cacheMu.Unlock()
-	height := len(chain)
 	if height == a.cachedHeight {
 		return a.cachedTxCount
 	}
