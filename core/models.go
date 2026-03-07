@@ -21,6 +21,10 @@ const (
 	TargetBlockTime   = 30 * time.Second
 )
 
+// MempoolMaxSize sets an upper bound on pending transactions held in memory.
+// Defined as a variable to permit tuning in tests.
+var MempoolMaxSize = 1024
+
 // Transaction represents a signed CoCaX transaction.
 type Transaction struct {
 	ID                 string            `json:"id"`
