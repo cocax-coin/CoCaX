@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/big"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ type Server struct {
 	dataDir string
 	miner   string
 	peers   []string
+	p2p     *core.P2PNode
 
 	cacheMu       sync.RWMutex
 	cachedHeight  int
@@ -65,6 +65,8 @@ func (a *Server) Router() http.Handler {
 	mux.HandleFunc("/transactions/", a.handleTransactions)
 	mux.HandleFunc("/api/transactions", a.handleTransactions)
 	mux.HandleFunc("/api/transactions/", a.handleTransactions)
+	mux.HandleFunc("/height", a.handleHeight)
+	mux.HandleFunc("/api/height", a.handleHeight)
 	mux.HandleFunc("/tx/submit", a.handleTxSubmit)
 	mux.HandleFunc("/blocks", a.handleBlocks)
 	mux.HandleFunc("/status", a.handleStatus)
@@ -74,6 +76,11 @@ func (a *Server) Router() http.Handler {
 	mux.HandleFunc("/mine", a.handleMine)
 	mux.HandleFunc("/rpc", a.handleJSONRPC)
 	return corsMiddleware(mux)
+}
+
+// SetP2PNode wires the RPC server to a P2P node for broadcast duties.
+func (a *Server) SetP2PNode(node *core.P2PNode) {
+	a.p2p = node
 }
 
 // corsMiddleware adds CORS headers and handles OPTIONS pre-flight requests.
@@ -232,62 +239,11 @@ func (a *Server) handleTxSubmit(w http.ResponseWriter, r *http.Request) {
 
 // validateAndAddTx validates all rules and appends tx to the mempool.
 func (a *Server) validateAndAddTx(tx *core.Transaction) error {
-	if tx.IsCoinbase {
-		return fmt.Errorf("cannot submit coinbase transaction")
+	if err := core.AddTxToMempool(a.state, tx); err != nil {
+		return err
 	}
-	if !core.FloatEqual(tx.Fee, core.FixedFee) {
-		return fmt.Errorf("fee must be exactly %.2f CoX", core.FixedFee)
-	}
-	if err := core.VerifyTransaction(tx); err != nil {
-		return fmt.Errorf("signature validation failed: %w", err)
-	}
-
-	a.state.Lock()
-	defer a.state.Unlock()
-
-	sender, ok := a.state.Accounts[tx.From]
-	if !ok {
-		sender = &core.Account{Address: tx.From, Balance: 0, Nonce: 0}
-	}
-	for _, pending := range a.state.Mempool {
-		if pending.From == tx.From && pending.Nonce == tx.Nonce {
-			return fmt.Errorf("duplicate nonce in mempool for %s: already have tx %s", tx.From, pending.ID)
-		}
-	}
-	if tx.Nonce != sender.Nonce+1 {
-		return fmt.Errorf("nonce mismatch: expected %d, got %d", sender.Nonce+1, tx.Nonce)
-	}
-	if sender.Balance < tx.Amount+tx.Fee {
-		return fmt.Errorf("insufficient balance: have %.8f, need %.8f", sender.Balance, tx.Amount+tx.Fee)
-	}
-
-	tx.ID = core.TxID(tx)
-
-	// Insert into mempool ordered by fee (desc), then timestamp (asc), then nonce (asc), then ID.
-	insertAt := sort.Search(len(a.state.Mempool), func(i int) bool {
-		existing := a.state.Mempool[i]
-		switch {
-		case !core.FloatEqual(tx.Fee, existing.Fee):
-			return tx.Fee > existing.Fee
-		case tx.Timestamp != existing.Timestamp:
-			return tx.Timestamp < existing.Timestamp
-		case tx.Nonce != existing.Nonce:
-			return tx.Nonce < existing.Nonce
-		default:
-			return tx.ID < existing.ID
-		}
-	})
-	a.state.Mempool = append(a.state.Mempool, core.Transaction{})
-	copy(a.state.Mempool[insertAt+1:], a.state.Mempool[insertAt:])
-	a.state.Mempool[insertAt] = *tx
-
-	if len(a.state.Mempool) > core.MempoolMaxSize {
-		// Drop the lowest-priority transaction (last element).
-		dropped := a.state.Mempool[len(a.state.Mempool)-1]
-		a.state.Mempool = a.state.Mempool[:len(a.state.Mempool)-1]
-		if dropped.ID == tx.ID {
-			return fmt.Errorf("mempool full: tx rejected due to low priority")
-		}
+	if a.p2p != nil {
+		a.p2p.BroadcastTx(tx)
 	}
 	return nil
 }
@@ -303,11 +259,38 @@ func (a *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
+	fromStr := strings.TrimSpace(r.URL.Query().Get("from"))
+	start := 0
+	if fromStr != "" {
+		offset, err := strconv.Atoi(fromStr)
+		switch {
+		case err != nil || offset < 0:
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "from must be a non-negative integer"})
+			return
+		default:
+			start = offset
+		}
+	}
 	a.state.RLock()
-	chain := make([]core.Block, len(a.state.Chain))
-	copy(chain, a.state.Chain)
+	if start > len(a.state.Chain) {
+		start = len(a.state.Chain)
+	}
+	chain := make([]core.Block, len(a.state.Chain)-start)
+	copy(chain, a.state.Chain[start:])
 	a.state.RUnlock()
 	jsonResponse(w, http.StatusOK, chain)
+}
+
+// handleHeight serves GET /height.
+func (a *Server) handleHeight(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	a.state.RLock()
+	height := len(a.state.Chain)
+	a.state.RUnlock()
+	jsonResponse(w, http.StatusOK, map[string]int{"height": height})
 }
 
 // handleStatus exposes a lightweight dashboard-friendly chain summary.
@@ -435,6 +418,9 @@ func (a *Server) handleMine(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if a.p2p != nil {
+		a.p2p.BroadcastBlock(block)
 	}
 	jsonResponse(w, http.StatusOK, block)
 }
