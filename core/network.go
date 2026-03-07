@@ -22,6 +22,7 @@ type P2PNode struct {
 	seenTxIDs        map[string]time.Time
 	seenBlockHashes  map[string]time.Time
 	knownBlockHashes map[string]struct{}
+	indexedHeight    int
 }
 
 // P2PMessage is the wire format used between peers.
@@ -68,15 +69,21 @@ func (n *P2PNode) indexExistingBlocks() {
 		return
 	}
 	n.state.RLock()
-	defer n.state.RUnlock()
+	chainCopy := make([]Block, len(n.state.Chain))
+	copy(chainCopy, n.state.Chain)
+	n.state.RUnlock()
+
 	now := time.Now()
-	for _, blk := range n.state.Chain {
+	n.mu.Lock()
+	for _, blk := range chainCopy {
 		if blk.Hash == "" {
 			continue
 		}
 		n.knownBlockHashes[blk.Hash] = struct{}{}
 		n.seenBlockHashes[blk.Hash] = now
 	}
+	n.indexedHeight = len(chainCopy)
+	n.mu.Unlock()
 }
 
 // Start begins listening for inbound connections and dials configured peers.
@@ -383,11 +390,18 @@ func (n *P2PNode) markBlockSeen(hash string) {
 }
 
 func (n *P2PNode) recordBlockHash(hash string) {
+	n.state.RLock()
+	height := len(n.state.Chain)
+	n.state.RUnlock()
+
 	n.mu.Lock()
 	if n.knownBlockHashes == nil {
 		n.knownBlockHashes = make(map[string]struct{})
 	}
 	n.knownBlockHashes[hash] = struct{}{}
+	if height > n.indexedHeight {
+		n.indexedHeight = height
+	}
 	n.mu.Unlock()
 	n.markBlockSeen(hash)
 }
@@ -454,24 +468,45 @@ func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
 	}
 }
 
+func (n *P2PNode) refreshKnownBlocks() {
+	if n.state == nil {
+		return
+	}
+	n.state.RLock()
+	start := n.indexedHeight
+	if start < 0 {
+		start = 0
+	}
+	if start > len(n.state.Chain) {
+		start = len(n.state.Chain)
+	}
+	if start == len(n.state.Chain) {
+		n.state.RUnlock()
+		return
+	}
+	chainCopy := make([]Block, len(n.state.Chain)-start)
+	copy(chainCopy, n.state.Chain[start:])
+	n.state.RUnlock()
+
+	now := time.Now()
+	n.mu.Lock()
+	for _, blk := range chainCopy {
+		if blk.Hash == "" {
+			continue
+		}
+		n.knownBlockHashes[blk.Hash] = struct{}{}
+		n.seenBlockHashes[blk.Hash] = now
+	}
+	n.indexedHeight += len(chainCopy)
+	n.mu.Unlock()
+}
+
 func (n *P2PNode) chainHasBlock(hash string) bool {
+	n.refreshKnownBlocks()
 	n.mu.Lock()
 	_, ok := n.knownBlockHashes[hash]
 	n.mu.Unlock()
 	if ok {
-		return true
-	}
-	found := false
-	n.state.RLock()
-	for _, blk := range n.state.Chain {
-		if blk.Hash == hash {
-			found = true
-			break
-		}
-	}
-	n.state.RUnlock()
-	if found {
-		n.recordBlockHash(hash)
 		return true
 	}
 	return false

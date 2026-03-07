@@ -271,10 +271,13 @@ func (a *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 		start = offset
 	}
 	a.state.RLock()
-	if start > len(a.state.Chain) {
-		start = len(a.state.Chain)
+	chainLen := len(a.state.Chain)
+	if start > chainLen {
+		a.state.RUnlock()
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "from exceeds chain height"})
+		return
 	}
-	chain := make([]core.Block, len(a.state.Chain)-start)
+	chain := make([]core.Block, chainLen-start)
 	copy(chain, a.state.Chain[start:])
 	a.state.RUnlock()
 	jsonResponse(w, http.StatusOK, chain)
