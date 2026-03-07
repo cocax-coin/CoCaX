@@ -406,13 +406,18 @@ func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
 }
 
 func (n *P2PNode) chainHasBlock(hash string) bool {
+	found := false
 	n.state.RLock()
-	defer n.state.RUnlock()
 	for _, blk := range n.state.Chain {
 		if blk.Hash == hash {
-			n.markBlockSeen(hash)
-			return true
+			found = true
+			break
 		}
+	}
+	n.state.RUnlock()
+	if found {
+		n.markBlockSeen(hash)
+		return true
 	}
 	return false
 }
