@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -261,7 +262,33 @@ func (a *Server) validateAndAddTx(tx *core.Transaction) error {
 	}
 
 	tx.ID = core.TxID(tx)
-	a.state.Mempool = append(a.state.Mempool, *tx)
+
+	// Insert into mempool ordered by fee (desc), then timestamp (asc), then nonce (asc), then ID.
+	insertAt := sort.Search(len(a.state.Mempool), func(i int) bool {
+		existing := a.state.Mempool[i]
+		switch {
+		case !core.FloatEqual(tx.Fee, existing.Fee):
+			return tx.Fee > existing.Fee
+		case tx.Timestamp != existing.Timestamp:
+			return tx.Timestamp < existing.Timestamp
+		case tx.Nonce != existing.Nonce:
+			return tx.Nonce < existing.Nonce
+		default:
+			return tx.ID < existing.ID
+		}
+	})
+	a.state.Mempool = append(a.state.Mempool, core.Transaction{})
+	copy(a.state.Mempool[insertAt+1:], a.state.Mempool[insertAt:])
+	a.state.Mempool[insertAt] = *tx
+
+	if len(a.state.Mempool) > core.MempoolMaxSize {
+		// Drop the lowest-priority transaction (last element).
+		dropped := a.state.Mempool[len(a.state.Mempool)-1]
+		a.state.Mempool = a.state.Mempool[:len(a.state.Mempool)-1]
+		if dropped.ID == tx.ID {
+			return fmt.Errorf("mempool full: tx rejected due to low priority")
+		}
+	}
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package core_test
 
 import (
+	"crypto/ecdsa"
 	"math"
 	"os"
 	"strings"
@@ -230,6 +231,78 @@ func TestMempool_InsufficientBalance(t *testing.T) {
 
 	if err := api.ValidateAndAddTx(&tx); err == nil {
 		t.Error("expected insufficient balance error, got nil")
+	}
+}
+
+func TestMempool_OrderedInsertionAndLimit(t *testing.T) {
+	origLimit := core.MempoolMaxSize
+	core.MempoolMaxSize = 2
+	defer func() { core.MempoolMaxSize = origLimit }()
+
+	// Three funded senders so nonce rules remain satisfied while exercising ordering.
+	privA, _ := core.GenerateKeyPair()
+	addrA := core.DeriveAddress(&privA.PublicKey)
+	privB, _ := core.GenerateKeyPair()
+	addrB := core.DeriveAddress(&privB.PublicKey)
+	privC, _ := core.GenerateKeyPair()
+	addrC := core.DeriveAddress(&privC.PublicKey)
+
+	cs := &core.ChainState{
+		Accounts: map[string]*core.Account{
+			addrA: {Address: addrA, Balance: 10, Nonce: 0},
+			addrB: {Address: addrB, Balance: 10, Nonce: 0},
+			addrC: {Address: addrC, Balance: 10, Nonce: 0},
+		},
+		Mempool: []core.Transaction{},
+	}
+	api := rpc.NewServer(cs, "", "")
+
+	makeTx := func(priv *ecdsa.PrivateKey, ts int64) core.Transaction {
+		tx := core.Transaction{
+			From:      core.DeriveAddress(&priv.PublicKey),
+			To:        "CoXrecipient000000000000000000000000000000000",
+			Amount:    1.0,
+			Fee:       core.FixedFee,
+			Nonce:     1,
+			Timestamp: ts,
+		}
+		_ = core.SignTransaction(&tx, priv)
+		return tx
+	}
+
+	txSlow := makeTx(privA, time.Now().Add(2*time.Second).Unix())
+	if err := api.ValidateAndAddTx(&txSlow); err != nil {
+		t.Fatalf("add txSlow: %v", err)
+	}
+	txFast := makeTx(privB, time.Now().Add(1*time.Second).Unix())
+	if err := api.ValidateAndAddTx(&txFast); err != nil {
+		t.Fatalf("add txFast: %v", err)
+	}
+
+	cs.RLock()
+	if len(cs.Mempool) != 2 {
+		cs.RUnlock()
+		t.Fatalf("expected mempool size 2, got %d", len(cs.Mempool))
+	}
+	if cs.Mempool[0].ID != txFast.ID || cs.Mempool[1].ID != txSlow.ID {
+		cs.RUnlock()
+		t.Fatalf("mempool not ordered by priority: got [%s, %s]", cs.Mempool[0].ID, cs.Mempool[1].ID)
+	}
+	cs.RUnlock()
+
+	// Third tx should be rejected and not evict higher priority entries.
+	txLowest := makeTx(privC, time.Now().Add(3*time.Second).Unix())
+	err := api.ValidateAndAddTx(&txLowest)
+	if err == nil || !strings.Contains(err.Error(), "mempool full") {
+		t.Fatalf("expected mempool full error, got: %v", err)
+	}
+	cs.RLock()
+	defer cs.RUnlock()
+	if len(cs.Mempool) != 2 {
+		t.Fatalf("expected mempool size to remain 2, got %d", len(cs.Mempool))
+	}
+	if cs.Mempool[0].ID != txFast.ID || cs.Mempool[1].ID != txSlow.ID {
+		t.Fatalf("mempool contents changed after rejection: [%s, %s]", cs.Mempool[0].ID, cs.Mempool[1].ID)
 	}
 }
 
