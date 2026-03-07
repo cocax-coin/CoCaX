@@ -429,12 +429,6 @@ func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
 	if excess <= 0 || len(m) == 0 {
 		return
 	}
-	if excess >= len(m) {
-		for k := range m {
-			delete(m, k)
-		}
-		return
-	}
 	if excess == 1 {
 		var oldestKey string
 		var oldestTS time.Time
@@ -506,8 +500,5 @@ func (n *P2PNode) chainHasBlock(hash string) bool {
 	n.mu.Lock()
 	_, ok := n.knownBlockHashes[hash]
 	n.mu.Unlock()
-	if ok {
-		return true
-	}
-	return false
+	return ok
 }
