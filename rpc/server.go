@@ -14,13 +14,19 @@ import (
 	"cocax-core/core"
 )
 
+// Broadcaster is a minimal interface for gossiping transactions and blocks.
+type Broadcaster interface {
+	BroadcastTx(tx *core.Transaction)
+	BroadcastBlock(block *core.Block)
+}
+
 // Server exposes the CoCaX RPC API (HTTP).
 type Server struct {
 	state   *core.ChainState
 	dataDir string
 	miner   string
 	peers   []string
-	p2p     *core.P2PNode
+	p2p     Broadcaster
 
 	cacheMu       sync.RWMutex
 	cachedHeight  int
@@ -79,7 +85,7 @@ func (a *Server) Router() http.Handler {
 }
 
 // SetP2PNode wires the RPC server to a P2P node for broadcast duties.
-func (a *Server) SetP2PNode(node *core.P2PNode) {
+func (a *Server) SetP2PNode(node Broadcaster) {
 	a.p2p = node
 }
 

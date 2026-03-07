@@ -5,9 +5,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"cocax-core/core"
 )
+
+type stubBroadcaster struct {
+	txs    []*core.Transaction
+	blocks []*core.Block
+}
+
+func (s *stubBroadcaster) BroadcastTx(tx *core.Transaction) {
+	s.txs = append(s.txs, tx)
+}
+
+func (s *stubBroadcaster) BroadcastBlock(block *core.Block) {
+	s.blocks = append(s.blocks, block)
+}
 
 func TestHandleBalanceAliases(t *testing.T) {
 	testAccountAddr := "CoX1111111111111111111111111111111111111111"
@@ -106,5 +120,38 @@ func TestHandleTransactionsIncludesPendingAndConfirmed(t *testing.T) {
 	}
 	if resp.Pending[0].Amount != pendingTx.Amount {
 		t.Fatalf("pending tx amount mismatch: %+v", resp.Pending[0])
+	}
+}
+
+func TestValidateAndAddTxBroadcasts(t *testing.T) {
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	state := &core.ChainState{
+		Accounts: map[string]*core.Account{
+			addr: {Address: addr, Balance: 5, Nonce: 0},
+		},
+	}
+	api := NewServer(state, "", "")
+	stub := &stubBroadcaster{}
+	api.SetP2PNode(stub)
+
+	tx := core.Transaction{
+		From:      addr,
+		To:        "CoXreceiver000000000000000000000000000000000",
+		Amount:    1,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Unix(),
+	}
+	_ = core.SignTransaction(&tx, priv)
+
+	if err := api.ValidateAndAddTx(&tx); err != nil {
+		t.Fatalf("ValidateAndAddTx: %v", err)
+	}
+	if len(stub.txs) != 1 {
+		t.Fatalf("expected broadcast to be invoked, got %d calls", len(stub.txs))
+	}
+	if stub.txs[0].ID != tx.ID {
+		t.Fatalf("broadcast received mismatched tx ID: got %s want %s", stub.txs[0].ID, tx.ID)
 	}
 }

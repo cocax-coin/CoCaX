@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -382,18 +383,31 @@ func (n *P2PNode) pruneSeenLocked() {
 }
 
 func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
-	for key := range m {
-		delete(m, key)
-		excess--
-		if excess <= 0 {
-			break
-		}
+	if excess <= 0 || len(m) == 0 {
+		return
+	}
+	type kv struct {
+		key string
+		ts  time.Time
+	}
+	entries := make([]kv, 0, len(m))
+	for k, ts := range m {
+		entries = append(entries, kv{key: k, ts: ts})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].ts.Before(entries[j].ts)
+	})
+	if excess > len(entries) {
+		excess = len(entries)
+	}
+	for i := 0; i < excess; i++ {
+		delete(m, entries[i].key)
 	}
 }
 
 func (n *P2PNode) chainHasBlock(hash string) bool {
-	n.state.mu.RLock()
-	defer n.state.mu.RUnlock()
+	n.state.RLock()
+	defer n.state.RUnlock()
 	for _, blk := range n.state.Chain {
 		if blk.Hash == hash {
 			return true
