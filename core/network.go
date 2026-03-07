@@ -363,14 +363,13 @@ func (n *P2PNode) markBlockSeen(hash string) {
 }
 
 func (n *P2PNode) pruneSeenLocked() {
-	now := time.Now()
 	for id, ts := range n.seenTxIDs {
-		if now.Sub(ts) > seenCacheTTL {
+		if time.Since(ts) > seenCacheTTL {
 			delete(n.seenTxIDs, id)
 		}
 	}
 	for h, ts := range n.seenBlockHashes {
-		if now.Sub(ts) > seenCacheTTL {
+		if time.Since(ts) > seenCacheTTL {
 			delete(n.seenBlockHashes, h)
 		}
 	}

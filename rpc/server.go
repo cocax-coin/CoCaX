@@ -264,13 +264,11 @@ func (a *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 	start := 0
 	if fromStr != "" {
 		offset, err := strconv.Atoi(fromStr)
-		switch {
-		case err != nil || offset < 0:
+		if err != nil || offset < 0 {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "from must be a non-negative integer"})
 			return
-		default:
-			start = offset
 		}
+		start = offset
 	}
 	a.state.RLock()
 	if start > len(a.state.Chain) {
