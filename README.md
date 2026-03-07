@@ -134,7 +134,7 @@ curl "http://localhost:8080/blocks?from=5"
 ```
 
 ### GET `/height`
-Returns the current chain height (number of blocks).
+Returns the current chain height (number of blocks). Alias: `/api/height`.
 
 ```bash
 curl http://localhost:8080/height

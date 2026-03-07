@@ -18,9 +18,10 @@ type P2PNode struct {
 	state      *ChainState
 	dataDir    string
 
-	mu              sync.Mutex
-	seenTxIDs       map[string]time.Time
-	seenBlockHashes map[string]time.Time
+	mu               sync.Mutex
+	seenTxIDs        map[string]time.Time
+	seenBlockHashes  map[string]time.Time
+	knownBlockHashes map[string]struct{}
 }
 
 // P2PMessage is the wire format used between peers.
@@ -49,13 +50,32 @@ const (
 
 // NewP2PNode creates a new P2PNode.
 func NewP2PNode(listenAddr string, peers []string, state *ChainState, dataDir string) *P2PNode {
-	return &P2PNode{
-		ListenAddr:      listenAddr,
-		Peers:           peers,
-		state:           state,
-		dataDir:         dataDir,
-		seenTxIDs:       make(map[string]time.Time),
-		seenBlockHashes: make(map[string]time.Time),
+	node := &P2PNode{
+		ListenAddr:       listenAddr,
+		Peers:            peers,
+		state:            state,
+		dataDir:          dataDir,
+		seenTxIDs:        make(map[string]time.Time),
+		seenBlockHashes:  make(map[string]time.Time),
+		knownBlockHashes: make(map[string]struct{}),
+	}
+	node.indexExistingBlocks()
+	return node
+}
+
+func (n *P2PNode) indexExistingBlocks() {
+	if n.state == nil {
+		return
+	}
+	n.state.RLock()
+	defer n.state.RUnlock()
+	now := time.Now()
+	for _, blk := range n.state.Chain {
+		if blk.Hash == "" {
+			continue
+		}
+		n.knownBlockHashes[blk.Hash] = struct{}{}
+		n.seenBlockHashes[blk.Hash] = now
 	}
 }
 
@@ -271,7 +291,7 @@ func (n *P2PNode) BroadcastBlock(block *Block) {
 	if n.hasSeenBlock(block.Hash) {
 		return
 	}
-	n.markBlockSeen(block.Hash)
+	n.recordBlockHash(block.Hash)
 	n.broadcastMessage("block", block)
 }
 
@@ -362,6 +382,16 @@ func (n *P2PNode) markBlockSeen(hash string) {
 	n.pruneSeenLocked()
 }
 
+func (n *P2PNode) recordBlockHash(hash string) {
+	n.mu.Lock()
+	if n.knownBlockHashes == nil {
+		n.knownBlockHashes = make(map[string]struct{})
+	}
+	n.knownBlockHashes[hash] = struct{}{}
+	n.mu.Unlock()
+	n.markBlockSeen(hash)
+}
+
 func (n *P2PNode) pruneSeenLocked() {
 	for id, ts := range n.seenTxIDs {
 		if time.Since(ts) > seenCacheTTL {
@@ -385,6 +415,26 @@ func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
 	if excess <= 0 || len(m) == 0 {
 		return
 	}
+	if excess >= len(m) {
+		for k := range m {
+			delete(m, k)
+		}
+		return
+	}
+	if excess == 1 {
+		var oldestKey string
+		var oldestTS time.Time
+		first := true
+		for k, ts := range m {
+			if first || ts.Before(oldestTS) {
+				oldestKey = k
+				oldestTS = ts
+				first = false
+			}
+		}
+		delete(m, oldestKey)
+		return
+	}
 	type kv struct {
 		key string
 		ts  time.Time
@@ -405,6 +455,12 @@ func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
 }
 
 func (n *P2PNode) chainHasBlock(hash string) bool {
+	n.mu.Lock()
+	_, ok := n.knownBlockHashes[hash]
+	n.mu.Unlock()
+	if ok {
+		return true
+	}
 	found := false
 	n.state.RLock()
 	for _, blk := range n.state.Chain {
@@ -415,7 +471,7 @@ func (n *P2PNode) chainHasBlock(hash string) bool {
 	}
 	n.state.RUnlock()
 	if found {
-		n.markBlockSeen(hash)
+		n.recordBlockHash(hash)
 		return true
 	}
 	return false
