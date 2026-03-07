@@ -410,6 +410,7 @@ func (n *P2PNode) chainHasBlock(hash string) bool {
 	defer n.state.RUnlock()
 	for _, blk := range n.state.Chain {
 		if blk.Hash == hash {
+			n.markBlockSeen(hash)
 			return true
 		}
 	}

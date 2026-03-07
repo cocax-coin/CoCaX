@@ -229,7 +229,7 @@ func (a *Server) handleTxSubmit(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
 		return
 	}
-	if err := a.validateAndAddTx(&tx); err != nil {
+	if err := a.ValidateAndAddTx(&tx); err != nil {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -243,8 +243,8 @@ func (a *Server) handleTxSubmit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// validateAndAddTx validates all rules and appends tx to the mempool.
-func (a *Server) validateAndAddTx(tx *core.Transaction) error {
+// ValidateAndAddTx validates all rules, appends tx to the mempool, and broadcasts it.
+func (a *Server) ValidateAndAddTx(tx *core.Transaction) error {
 	if err := core.AddTxToMempool(a.state, tx); err != nil {
 		return err
 	}
@@ -252,11 +252,6 @@ func (a *Server) validateAndAddTx(tx *core.Transaction) error {
 		a.p2p.BroadcastTx(tx)
 	}
 	return nil
-}
-
-// ValidateAndAddTx is an exported wrapper used by external callers (tests, tooling).
-func (a *Server) ValidateAndAddTx(tx *core.Transaction) error {
-	return a.validateAndAddTx(tx)
 }
 
 // handleBlocks serves GET /blocks.
@@ -567,7 +562,7 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 			res.Error = &rpcError{Code: -32602, Message: "unable to decode transaction"}
 			break
 		}
-		if err := a.validateAndAddTx(&tx); err != nil {
+		if err := a.ValidateAndAddTx(&tx); err != nil {
 			res.Error = &rpcError{Code: -32000, Message: err.Error()}
 			break
 		}
