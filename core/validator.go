@@ -39,7 +39,8 @@ func SnapshotValidatorSet() map[string]Validator {
 // It first checks that the peer is a registered, active validator and returns an
 // error otherwise. On success it appends the vote to the block's verification
 // metadata. NOTE: callers must not invoke this concurrently on the same block
-// instance.
+// instance because it mutates the block's verification slice and map without
+// additional synchronization.
 func AppendVerification(block *Block, v BlockVerification) error {
 	if block == nil {
 		return fmt.Errorf("block is nil")
