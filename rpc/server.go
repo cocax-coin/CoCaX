@@ -404,6 +404,7 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 			"timestamp":           blk.Timestamp,
 			"txs":                 len(blk.Transactions),
 			"verifications":       blk.Verifications,
+			"verified_sequence":   blk.VerifiedSequence,
 			"block_verifications": blk.BlockVerifications,
 		})
 	}
