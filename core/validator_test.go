@@ -3,9 +3,9 @@ package core
 import "testing"
 
 func TestAppendVerificationRejectsUnknownValidator(t *testing.T) {
-	orig := ValidatorSet
-	ValidatorSet = make(map[string]Validator)
-	defer func() { ValidatorSet = orig }()
+	orig := SnapshotValidatorSet()
+	ReplaceValidatorSet(make(map[string]Validator))
+	defer ReplaceValidatorSet(orig)
 
 	block := &Block{}
 	err := block.AppendVerification(BlockVerification{Peer: "validator-1", Accepted: true})
@@ -15,11 +15,11 @@ func TestAppendVerificationRejectsUnknownValidator(t *testing.T) {
 }
 
 func TestAppendVerificationRejectsInactiveValidator(t *testing.T) {
-	orig := ValidatorSet
-	ValidatorSet = map[string]Validator{
+	orig := SnapshotValidatorSet()
+	ReplaceValidatorSet(map[string]Validator{
 		"validator-1": {ID: "validator-1", Active: false},
-	}
-	defer func() { ValidatorSet = orig }()
+	})
+	defer ReplaceValidatorSet(orig)
 
 	block := &Block{}
 	err := block.AppendVerification(BlockVerification{Peer: "validator-1", Accepted: true})
@@ -29,11 +29,11 @@ func TestAppendVerificationRejectsInactiveValidator(t *testing.T) {
 }
 
 func TestAppendVerificationSucceedsForActiveValidator(t *testing.T) {
-	orig := ValidatorSet
-	ValidatorSet = map[string]Validator{
+	orig := SnapshotValidatorSet()
+	ReplaceValidatorSet(map[string]Validator{
 		"validator-1": {ID: "validator-1", Active: true},
-	}
-	defer func() { ValidatorSet = orig }()
+	})
+	defer ReplaceValidatorSet(orig)
 
 	block := &Block{}
 	vote := BlockVerification{Peer: "validator-1", Accepted: true}
