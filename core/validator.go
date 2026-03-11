@@ -61,8 +61,3 @@ func AppendVerification(block *Block, v BlockVerification) error {
 	block.BlockVerifications[v.Peer] = v.Accepted
 	return nil
 }
-
-// AppendVerification appends a verification vote using method syntax.
-func (b *Block) AppendVerification(v BlockVerification) error {
-	return AppendVerification(b, v)
-}
