@@ -57,6 +57,7 @@ type Block struct {
 	Verifications      []BlockVerification `json:"verifications,omitempty"`
 	CrossSigs          map[string]string   `json:"cross_sigs,omitempty"` // optional peer signatures for PoVS
 	BlockVerifications map[string]bool     `json:"block_verifications,omitempty"`
+	VerifiedSequence   []Verification      `json:"verified_sequence,omitempty"`
 }
 
 // BlockVerification captures a peer's validation vote for a block.
@@ -64,6 +65,13 @@ type BlockVerification struct {
 	Peer     string `json:"peer"`
 	Accepted bool   `json:"accepted"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+// Verification represents a validator confirmation within the PoVS sequence.
+type Verification struct {
+	VerifierID string `json:"verifier_id"`
+	Signature  []byte `json:"signature"`
+	Index      int    `json:"index"`
 }
 
 // Account represents the on-chain state for a single address.
