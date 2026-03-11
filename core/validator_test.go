@@ -43,7 +43,7 @@ func TestAppendVerificationSucceedsForActiveValidator(t *testing.T) {
 	if len(block.Verifications) != 1 {
 		t.Fatalf("expected 1 verification, got %d", len(block.Verifications))
 	}
-	if isAccepted, ok := block.BlockVerifications["validator-1"]; !ok || !isAccepted {
+	if acceptedStatus, ok := block.BlockVerifications["validator-1"]; !ok || !acceptedStatus {
 		t.Fatalf("block verification map not updated")
 	}
 }
