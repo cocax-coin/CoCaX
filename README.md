@@ -121,12 +121,23 @@ curl http://localhost:8080/balance/CoX_FOUNDER_PLACEHOLDER_UPDATE_ME
 ```
 
 ### GET `/blocks`
-Returns the full blockchain as a JSON array. Blocks now include:
+Returns the full blockchain as a JSON array. Supports incremental sync with `?from=<index>` (0-based) to fetch blocks starting from a specific height.
+
+Blocks now include:
 - `block_verifications` (peer vote map), `verifications` (detailed votes), and optional `memo`
 - `transactions` entries with `is_coinbase`, `sequence_number`, and optional `verified_signatures` (coinbase is always sequence `0`)
 
 ```bash
 curl http://localhost:8080/blocks
+# Fetch from block #5 onward
+curl "http://localhost:8080/blocks?from=5"
+```
+
+### GET `/height`
+Returns the current chain height (number of blocks). Alias: `/api/height`.
+
+```bash
+curl http://localhost:8080/height
 ```
 
 ### GET `/status`

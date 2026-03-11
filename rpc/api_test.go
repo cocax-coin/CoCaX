@@ -160,6 +160,61 @@ func TestBlocksEndpoint(t *testing.T) {
 	}
 }
 
+func TestHeightEndpoint(t *testing.T) {
+	srv, cs := newTestServer(t)
+	resp, err := http.Get(srv.URL + "/height")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]int
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["height"] != len(cs.Chain) {
+		t.Fatalf("height mismatch: got %d want %d", body["height"], len(cs.Chain))
+	}
+}
+
+func TestBlocksEndpointFromOffset(t *testing.T) {
+	dir := t.TempDir()
+	cs, err := core.LoadState(dir, "")
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	api := rpc.NewServer(cs, dir, core.FounderAddress)
+	srv := httptest.NewServer(api.Router())
+	t.Cleanup(srv.Close)
+
+	if _, err := core.MineBlock(cs, core.FounderAddress, dir); err != nil {
+		t.Fatalf("MineBlock: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/blocks?from=1")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var blocks []core.Block
+	if err := json.NewDecoder(resp.Body).Decode(&blocks); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block from offset, got %d", len(blocks))
+	}
+	if blocks[0].Index != 1 {
+		t.Fatalf("expected block index 1, got %d", blocks[0].Index)
+	}
+}
+
 // ---- /tx/submit -------------------------------------------------------------
 
 func submitTx(t *testing.T, srvURL string, tx core.Transaction) (*http.Response, error) {

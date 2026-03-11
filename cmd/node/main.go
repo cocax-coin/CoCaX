@@ -79,6 +79,7 @@ func main() {
 
 	// Start HTTP API (RPC).
 	api := rpc.NewServer(state, *dataDir, minerAddr, peerList...)
+	api.SetP2PNode(p2p)
 	log.Printf("[%s] HTTP API listening on  http://%s", core.CoinName, *apiAddr)
 	log.Printf("[%s] Blocks endpoint:        http://%s/blocks", core.CoinName, *apiAddr)
 	log.Printf("[%s] Balance endpoint:       http://%s/balance/<address>", core.CoinName, *apiAddr)

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,6 +17,12 @@ type P2PNode struct {
 	Peers      []string
 	state      *ChainState
 	dataDir    string
+
+	mu               sync.Mutex
+	seenTxIDs        map[string]time.Time
+	seenBlockHashes  map[string]time.Time
+	knownBlockHashes map[string]struct{}
+	indexedHeight    int
 }
 
 // P2PMessage is the wire format used between peers.
@@ -36,14 +44,46 @@ type VerifyBlockResponse struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+const (
+	seenCacheLimit = 2048
+	seenCacheTTL   = 30 * time.Minute
+)
+
 // NewP2PNode creates a new P2PNode.
 func NewP2PNode(listenAddr string, peers []string, state *ChainState, dataDir string) *P2PNode {
-	return &P2PNode{
-		ListenAddr: listenAddr,
-		Peers:      peers,
-		state:      state,
-		dataDir:    dataDir,
+	node := &P2PNode{
+		ListenAddr:       listenAddr,
+		Peers:            peers,
+		state:            state,
+		dataDir:          dataDir,
+		seenTxIDs:        make(map[string]time.Time),
+		seenBlockHashes:  make(map[string]time.Time),
+		knownBlockHashes: make(map[string]struct{}),
 	}
+	node.indexExistingBlocks()
+	return node
+}
+
+func (n *P2PNode) indexExistingBlocks() {
+	if n.state == nil {
+		return
+	}
+	n.state.RLock()
+	chainCopy := make([]Block, len(n.state.Chain))
+	copy(chainCopy, n.state.Chain)
+	n.state.RUnlock()
+
+	now := time.Now()
+	n.mu.Lock()
+	for _, blk := range chainCopy {
+		if blk.Hash == "" {
+			continue
+		}
+		n.knownBlockHashes[blk.Hash] = struct{}{}
+		n.seenBlockHashes[blk.Hash] = now
+	}
+	n.indexedHeight = len(chainCopy)
+	n.mu.Unlock()
 }
 
 // Start begins listening for inbound connections and dials configured peers.
@@ -67,7 +107,7 @@ func (n *P2PNode) Start() {
 
 	for _, peer := range n.Peers {
 		p := strings.TrimSpace(peer)
-		if p != "" {
+		if p != "" && p != n.ListenAddr {
 			go n.connectPeer(p)
 		}
 	}
@@ -144,6 +184,40 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 		if err := enc.Encode(resp); err != nil {
 			log.Printf("[P2P] Failed to send verify response: %v", err)
 		}
+	case "tx":
+		var tx Transaction
+		if err := json.Unmarshal(msg.Payload, &tx); err != nil {
+			log.Printf("[P2P] Failed to decode tx: %v", err)
+			return
+		}
+		if tx.ID == "" {
+			tx.ID = TxID(&tx)
+		}
+		if n.hasSeenTx(tx.ID) {
+			return
+		}
+		if err := AddTxToMempool(n.state, &tx); err != nil {
+			log.Printf("[P2P] Rejected tx %s: %v", tx.ID, err)
+			return
+		}
+		n.BroadcastTx(&tx)
+	case "block":
+		var blk Block
+		if err := json.Unmarshal(msg.Payload, &blk); err != nil {
+			log.Printf("[P2P] Failed to decode block: %v", err)
+			return
+		}
+		if blk.Hash == "" {
+			blk.Hash = BlockHash(&blk)
+		}
+		if n.hasSeenBlock(blk.Hash) || n.chainHasBlock(blk.Hash) {
+			return
+		}
+		if err := AddBlock(n.state, &blk, n.dataDir); err != nil {
+			log.Printf("[P2P] Rejected block %s: %v", blk.Hash, err)
+			return
+		}
+		n.BroadcastBlock(&blk)
 	default:
 		log.Printf("[P2P] Unknown message type: %s", msg.Type)
 	}
@@ -194,4 +268,237 @@ func (n *P2PNode) connectPeer(addr string) {
 	}
 
 	fmt.Printf("[P2P] Handshake complete with %s (peer msg type: %s)\n", addr, msg.Type)
+}
+
+// BroadcastTx propagates a validated transaction to all configured peers while
+// suppressing rebroadcast loops via an in-memory ID cache.
+func (n *P2PNode) BroadcastTx(tx *Transaction) {
+	if tx == nil {
+		return
+	}
+	if tx.ID == "" {
+		tx.ID = TxID(tx)
+	}
+	if n.hasSeenTx(tx.ID) {
+		return
+	}
+	n.markTxSeen(tx.ID)
+	n.broadcastMessage("tx", tx)
+}
+
+// BroadcastBlock propagates a validated block to peers, avoiding redundant
+// rebroadcasts via an in-memory hash cache.
+func (n *P2PNode) BroadcastBlock(block *Block) {
+	if block == nil {
+		return
+	}
+	if block.Hash == "" {
+		block.Hash = BlockHash(block)
+	}
+	if n.hasSeenBlock(block.Hash) {
+		return
+	}
+	n.recordBlockHash(block.Hash)
+	n.broadcastMessage("block", block)
+}
+
+func (n *P2PNode) broadcastMessage(msgType string, payload interface{}) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[P2P] Failed to marshal %s payload: %v", msgType, err)
+		return
+	}
+	msg := P2PMessage{Type: msgType, Payload: data}
+	for _, peer := range n.Peers {
+		p := strings.TrimSpace(peer)
+		if p == "" || p == n.ListenAddr {
+			continue
+		}
+		go n.sendMessage(p, msg)
+	}
+}
+
+func (n *P2PNode) sendMessage(addr string, msg P2PMessage) {
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		log.Printf("[P2P] Failed to connect to %s: %v", addr, err)
+		return
+	}
+	defer conn.Close()
+
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		return
+	}
+
+	dec := json.NewDecoder(conn)
+	enc := json.NewEncoder(conn)
+
+	var hello P2PMessage
+	if err := dec.Decode(&hello); err != nil {
+		log.Printf("[P2P] Failed to read hello from %s: %v", addr, err)
+		return
+	}
+
+	if err := enc.Encode(msg); err != nil {
+		log.Printf("[P2P] Failed to send %s to %s: %v", msg.Type, addr, err)
+	}
+}
+
+func (n *P2PNode) hasSeenTx(id string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.hasSeenLocked(n.seenTxIDs, id)
+}
+
+func (n *P2PNode) hasSeenBlock(hash string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.hasSeenLocked(n.seenBlockHashes, hash)
+}
+
+func (n *P2PNode) hasSeenLocked(store map[string]time.Time, key string) bool {
+	if store == nil {
+		return false
+	}
+	if ts, ok := store[key]; ok {
+		if time.Since(ts) < seenCacheTTL {
+			return true
+		}
+		delete(store, key)
+	}
+	return false
+}
+
+func (n *P2PNode) markTxSeen(id string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.seenTxIDs == nil {
+		n.seenTxIDs = make(map[string]time.Time)
+	}
+	n.seenTxIDs[id] = time.Now()
+	n.pruneSeenLocked()
+}
+
+func (n *P2PNode) markBlockSeen(hash string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.seenBlockHashes == nil {
+		n.seenBlockHashes = make(map[string]time.Time)
+	}
+	n.seenBlockHashes[hash] = time.Now()
+	n.pruneSeenLocked()
+}
+
+func (n *P2PNode) recordBlockHash(hash string) {
+	n.state.RLock()
+	height := len(n.state.Chain)
+	n.state.RUnlock()
+
+	n.mu.Lock()
+	if n.knownBlockHashes == nil {
+		n.knownBlockHashes = make(map[string]struct{})
+	}
+	n.knownBlockHashes[hash] = struct{}{}
+	if height > n.indexedHeight {
+		n.indexedHeight = height
+	}
+	n.mu.Unlock()
+	n.markBlockSeen(hash)
+}
+
+func (n *P2PNode) pruneSeenLocked() {
+	for id, ts := range n.seenTxIDs {
+		if time.Since(ts) > seenCacheTTL {
+			delete(n.seenTxIDs, id)
+		}
+	}
+	for h, ts := range n.seenBlockHashes {
+		if time.Since(ts) > seenCacheTTL {
+			delete(n.seenBlockHashes, h)
+		}
+	}
+	if len(n.seenTxIDs) > seenCacheLimit {
+		n.trimMap(n.seenTxIDs, len(n.seenTxIDs)-seenCacheLimit)
+	}
+	if len(n.seenBlockHashes) > seenCacheLimit {
+		n.trimMap(n.seenBlockHashes, len(n.seenBlockHashes)-seenCacheLimit)
+	}
+}
+
+func (n *P2PNode) trimMap(m map[string]time.Time, excess int) {
+	if excess <= 0 || len(m) == 0 {
+		return
+	}
+	if excess == 1 {
+		var oldestKey string
+		var oldestTS time.Time
+		first := true
+		for k, ts := range m {
+			if first || ts.Before(oldestTS) {
+				oldestKey = k
+				oldestTS = ts
+				first = false
+			}
+		}
+		delete(m, oldestKey)
+		return
+	}
+	type kv struct {
+		key string
+		ts  time.Time
+	}
+	entries := make([]kv, 0, len(m))
+	for k, ts := range m {
+		entries = append(entries, kv{key: k, ts: ts})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].ts.Before(entries[j].ts)
+	})
+	if excess > len(entries) {
+		excess = len(entries)
+	}
+	for i := 0; i < excess; i++ {
+		delete(m, entries[i].key)
+	}
+}
+
+func (n *P2PNode) refreshKnownBlocks() {
+	if n.state == nil {
+		return
+	}
+	n.state.RLock()
+	start := n.indexedHeight
+	if start < 0 {
+		start = 0
+	}
+	if start > len(n.state.Chain) {
+		start = len(n.state.Chain)
+	}
+	if start == len(n.state.Chain) {
+		n.state.RUnlock()
+		return
+	}
+	chainCopy := make([]Block, len(n.state.Chain)-start)
+	copy(chainCopy, n.state.Chain[start:])
+	n.state.RUnlock()
+
+	now := time.Now()
+	n.mu.Lock()
+	for _, blk := range chainCopy {
+		if blk.Hash == "" {
+			continue
+		}
+		n.knownBlockHashes[blk.Hash] = struct{}{}
+		n.seenBlockHashes[blk.Hash] = now
+	}
+	n.indexedHeight += len(chainCopy)
+	n.mu.Unlock()
+}
+
+func (n *P2PNode) chainHasBlock(hash string) bool {
+	n.refreshKnownBlocks()
+	n.mu.Lock()
+	_, ok := n.knownBlockHashes[hash]
+	n.mu.Unlock()
+	return ok
 }
