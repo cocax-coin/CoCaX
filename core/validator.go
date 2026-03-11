@@ -1,6 +1,9 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // Validator represents a registered PoVS validator.
 type Validator struct {
@@ -11,6 +14,7 @@ type Validator struct {
 
 // ValidatorSet holds the registered validators keyed by their ID.
 var ValidatorSet = make(map[string]Validator)
+var validatorMu sync.RWMutex
 
 // AppendVerification records a validator's verification vote on the given block.
 // It rejects votes from unknown or inactive validators to prevent Sybil attacks.
@@ -18,7 +22,9 @@ func (b *Block) AppendVerification(v BlockVerification) error {
 	if b == nil {
 		return fmt.Errorf("block is nil")
 	}
+	validatorMu.RLock()
 	validator, ok := ValidatorSet[v.Peer]
+	validatorMu.RUnlock()
 	if !ok {
 		return fmt.Errorf("unknown validator: %s", v.Peer)
 	}
