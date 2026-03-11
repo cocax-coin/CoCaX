@@ -18,8 +18,9 @@ var validatorMu sync.RWMutex
 
 // AppendVerification records a validator's verification vote on the given block.
 // It rejects votes from unknown or inactive validators to prevent Sybil attacks.
-func (b *Block) AppendVerification(v BlockVerification) error {
-	if b == nil {
+// NOTE: callers must not invoke this concurrently on the same block instance.
+func AppendVerification(block *Block, v BlockVerification) error {
+	if block == nil {
 		return fmt.Errorf("block is nil")
 	}
 	validatorMu.RLock()
@@ -32,16 +33,15 @@ func (b *Block) AppendVerification(v BlockVerification) error {
 		return fmt.Errorf("inactive validator: %s", v.Peer)
 	}
 
-	if b.BlockVerifications == nil {
-		b.BlockVerifications = make(map[string]bool)
+	if block.BlockVerifications == nil {
+		block.BlockVerifications = make(map[string]bool)
 	}
-	b.Verifications = append(b.Verifications, v)
-	b.BlockVerifications[v.Peer] = v.Accepted
+	block.Verifications = append(block.Verifications, v)
+	block.BlockVerifications[v.Peer] = v.Accepted
 	return nil
 }
 
-// AppendVerification is a helper that records a verification vote on the block.
-// It delegates to the Block method to keep call-sites simple.
-func AppendVerification(block *Block, v BlockVerification) error {
-	return block.AppendVerification(v)
+// AppendVerification appends a verification vote using method syntax.
+func (b *Block) AppendVerification(v BlockVerification) error {
+	return AppendVerification(b, v)
 }
