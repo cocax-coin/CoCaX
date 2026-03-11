@@ -70,6 +70,11 @@ func TestAppendVerificationValidation(t *testing.T) {
 	hashBytes := decodeBlockHash(t, blk)
 
 	priv, _ := core.GenerateKeyPair()
+	badFirstSig, _ := ecdsa.SignASN1(rand.Reader, priv, hashBytes)
+	if err := blk.AppendVerification(core.Verification{VerifierID: "validator-first", Signature: badFirstSig, Index: 5}, &priv.PublicKey); err == nil {
+		t.Fatalf("expected initial index mismatch rejection")
+	}
+
 	validSig, _ := ecdsa.SignASN1(rand.Reader, priv, hashBytes)
 	if err := blk.AppendVerification(core.Verification{VerifierID: "validator-1", Signature: validSig, Index: 0}, &priv.PublicKey); err != nil {
 		t.Fatalf("append first: %v", err)
@@ -105,17 +110,24 @@ func TestVerifiedSequencePersists(t *testing.T) {
 	}
 
 	last := cs.Chain[len(cs.Chain)-1]
+	priv, _ := core.GenerateKeyPair()
 	blk := core.Block{
 		Index:     last.Index + 1,
 		PrevHash:  last.Hash,
 		Timestamp: time.Now().Unix(),
 		Miner:     "miner-persist",
 		Reward:    0,
-		VerifiedSequence: []core.Verification{
-			{VerifierID: "validator-1", Signature: []byte{0x01, 0x02}, Index: 0},
-		},
 	}
 	blk.Hash = core.BlockHash(&blk)
+	hashBytes := decodeBlockHash(t, &blk)
+	sig, err := ecdsa.SignASN1(rand.Reader, priv, hashBytes)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	expectedID := core.DeriveAddress(&priv.PublicKey)
+	blk.VerifiedSequence = []core.Verification{
+		{VerifierID: expectedID, Signature: sig, Index: 0},
+	}
 	cs.Chain = append(cs.Chain, blk)
 
 	if err := core.SaveState(dir, cs); err != nil {
@@ -130,10 +142,14 @@ func TestVerifiedSequencePersists(t *testing.T) {
 		t.Fatalf("expected persisted verification sequence, got %d entries", len(reloaded.VerifiedSequence))
 	}
 	got := reloaded.VerifiedSequence[0]
-	if got.VerifierID != "validator-1" || got.Index != 0 {
+	if got.VerifierID != expectedID || got.Index != 0 {
 		t.Fatalf("unexpected verification entry: %+v", got)
 	}
 	if !bytes.Equal(got.Signature, blk.VerifiedSequence[0].Signature) {
 		t.Fatalf("signature mismatch after reload")
+	}
+	reloadedHashBytes := decodeBlockHash(t, &reloaded)
+	if !ecdsa.VerifyASN1(&priv.PublicKey, reloadedHashBytes, got.Signature) {
+		t.Fatalf("persisted signature does not verify against block hash")
 	}
 }
