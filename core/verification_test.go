@@ -87,6 +87,9 @@ func TestAppendVerificationValidation(t *testing.T) {
 	}
 
 	badSig, _ := ecdsa.SignASN1(rand.Reader, priv2, hashBytes)
+	if len(badSig) == 0 {
+		t.Fatalf("expected non-empty signature for tampering")
+	}
 	badSig[0] ^= 0xFF
 	err := blk.AppendVerification(core.Verification{VerifierID: "validator-2", Signature: badSig, Index: 1}, &priv2.PublicKey)
 	if err == nil || !strings.Contains(err.Error(), "signature") {
