@@ -18,11 +18,12 @@ type P2PNode struct {
 	state      *ChainState
 	dataDir    string
 
-	mu               sync.Mutex
-	seenTxIDs        map[string]time.Time
-	seenBlockHashes  map[string]time.Time
-	knownBlockHashes map[string]struct{}
-	indexedHeight    int
+	mu                  sync.Mutex
+	seenTxIDs           map[string]time.Time
+	seenBlockHashes     map[string]time.Time
+	knownBlockHashes    map[string]struct{}
+	finalizedBroadcasts map[string]bool
+	indexedHeight       int
 }
 
 // P2PMessage is the wire format used between peers.
@@ -52,13 +53,14 @@ const (
 // NewP2PNode creates a new P2PNode.
 func NewP2PNode(listenAddr string, peers []string, state *ChainState, dataDir string) *P2PNode {
 	node := &P2PNode{
-		ListenAddr:       listenAddr,
-		Peers:            peers,
-		state:            state,
-		dataDir:          dataDir,
-		seenTxIDs:        make(map[string]time.Time),
-		seenBlockHashes:  make(map[string]time.Time),
-		knownBlockHashes: make(map[string]struct{}),
+		ListenAddr:          listenAddr,
+		Peers:               peers,
+		state:               state,
+		dataDir:             dataDir,
+		seenTxIDs:           make(map[string]time.Time),
+		seenBlockHashes:     make(map[string]time.Time),
+		knownBlockHashes:    make(map[string]struct{}),
+		finalizedBroadcasts: make(map[string]bool),
 	}
 	node.indexExistingBlocks()
 	return node
@@ -81,6 +83,9 @@ func (n *P2PNode) indexExistingBlocks() {
 		}
 		n.knownBlockHashes[blk.Hash] = struct{}{}
 		n.seenBlockHashes[blk.Hash] = now
+		if blk.Finalized {
+			n.finalizedBroadcasts[blk.Hash] = true
+		}
 	}
 	n.indexedHeight = len(chainCopy)
 	n.mu.Unlock()
@@ -210,9 +215,24 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 		if blk.Hash == "" {
 			blk.Hash = BlockHash(&blk)
 		}
+		if n.tryFinalizeExistingBlock(&blk) {
+			n.BroadcastBlock(&blk)
+			return
+		}
 		if n.hasSeenBlock(blk.Hash) || n.chainHasBlock(blk.Hash) {
 			return
 		}
+		adopted, err := ResolveFork(n.state, &blk, n.dataDir)
+		if err != nil {
+			log.Printf("[P2P] Fork resolution failed: %v", err)
+			return
+		}
+		if adopted {
+			n.BroadcastBlock(&blk)
+			return
+		}
+		// If the candidate was not adopted as a finalized fork, process it as a
+		// standard block addition.
 		if err := AddBlock(n.state, &blk, n.dataDir); err != nil {
 			log.Printf("[P2P] Rejected block %s: %v", blk.Hash, err)
 			return
@@ -221,6 +241,38 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 	default:
 		log.Printf("[P2P] Unknown message type: %s", msg.Type)
 	}
+}
+
+func (n *P2PNode) tryFinalizeExistingBlock(block *Block) bool {
+	if block == nil || !block.Finalized || block.Hash == "" {
+		return false
+	}
+	n.state.Lock()
+	defer n.state.Unlock()
+	updated := false
+	for i := range n.state.Chain {
+		if n.state.Chain[i].Hash == block.Hash {
+			if !n.state.Chain[i].Finalized {
+				n.state.Chain[i].Finalized = true
+				updated = true
+			}
+			break
+		}
+	}
+	if updated && n.dataDir != "" {
+		if err := SaveState(n.dataDir, n.state); err != nil {
+			log.Printf("[P2P] Failed to persist finalized block: %v", err)
+		}
+	}
+	if updated {
+		n.mu.Lock()
+		if n.finalizedBroadcasts == nil {
+			n.finalizedBroadcasts = make(map[string]bool)
+		}
+		n.finalizedBroadcasts[block.Hash] = true
+		n.mu.Unlock()
+	}
+	return updated
 }
 
 // connectPeer dials a remote peer and performs the handshake.
@@ -295,7 +347,15 @@ func (n *P2PNode) BroadcastBlock(block *Block) {
 	if block.Hash == "" {
 		block.Hash = BlockHash(block)
 	}
-	if n.hasSeenBlock(block.Hash) {
+	n.mu.Lock()
+	alreadyFinalized := n.finalizedBroadcasts[block.Hash]
+	if block.Finalized && !alreadyFinalized {
+		n.finalizedBroadcasts[block.Hash] = true
+	}
+	forceBroadcast := block.Finalized && !alreadyFinalized
+	n.mu.Unlock()
+
+	if !forceBroadcast && n.hasSeenBlock(block.Hash) {
 		return
 	}
 	n.recordBlockHash(block.Hash)

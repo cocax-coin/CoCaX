@@ -45,6 +45,14 @@ func AppendVerification(block *Block, v BlockVerification) error {
 	if block == nil {
 		return fmt.Errorf("block is nil")
 	}
+	if block.Finalized {
+		return fmt.Errorf("block is already finalized")
+	}
+	for _, existing := range block.Verifications {
+		if existing.Peer == v.Peer {
+			return fmt.Errorf("duplicate verification from %s", v.Peer)
+		}
+	}
 	validatorMu.RLock()
 	validator, ok := ValidatorSet[v.Peer]
 	validatorMu.RUnlock()
@@ -60,5 +68,6 @@ func AppendVerification(block *Block, v BlockVerification) error {
 	}
 	block.Verifications = append(block.Verifications, v)
 	block.BlockVerifications[v.Peer] = v.Accepted
+	markFinalizedIfThresholdReached(block)
 	return nil
 }

@@ -403,6 +403,7 @@ func (a *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 			"prev_hash":           blk.PrevHash,
 			"timestamp":           blk.Timestamp,
 			"txs":                 len(blk.Transactions),
+			"finalized":           blk.Finalized,
 			"verifications":       blk.Verifications,
 			"verified_sequence":   blk.VerifiedSequence,
 			"block_verifications": blk.BlockVerifications,
