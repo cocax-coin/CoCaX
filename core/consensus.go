@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 )
@@ -290,7 +291,12 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 		block.BlockVerifications[v.Peer] = v.Accepted
 		merged = append(merged, v)
 	}
-	for _, r := range results {
+	sortedResults := make([]BlockVerification, len(results))
+	copy(sortedResults, results)
+	sort.Slice(sortedResults, func(i, j int) bool {
+		return sortedResults[i].Peer < sortedResults[j].Peer
+	})
+	for _, r := range sortedResults {
 		if _, seen := existingPeers[r.Peer]; seen {
 			continue
 		}

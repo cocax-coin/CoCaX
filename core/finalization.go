@@ -40,7 +40,13 @@ func markFinalizedIfThresholdReached(block *Block) {
 	if threshold <= 0 {
 		return
 	}
-	if len(block.Verifications) >= threshold {
+	accepted := 0
+	for _, v := range block.Verifications {
+		if v.Accepted {
+			accepted++
+		}
+	}
+	if accepted >= threshold {
 		block.Finalized = true
 	}
 }

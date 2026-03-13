@@ -124,3 +124,35 @@ func TestResolveForkPrefersFinalizedBlocks(t *testing.T) {
 		t.Fatalf("adopted block should be finalized")
 	}
 }
+
+func TestFinalizationCountsOnlyAcceptedVotes(t *testing.T) {
+	orig := SnapshotValidatorSet()
+	ReplaceValidatorSet(map[string]Validator{
+		"v1": {ID: "v1", Active: true},
+		"v2": {ID: "v2", Active: true},
+		"v3": {ID: "v3", Active: true},
+		"v4": {ID: "v4", Active: true},
+	})
+	defer ReplaceValidatorSet(orig)
+
+	blk := &Block{}
+	votes := []BlockVerification{
+		{Peer: "v1", Accepted: true},
+		{Peer: "v2", Accepted: false},
+		{Peer: "v3", Accepted: true},
+	}
+	for i, v := range votes {
+		if err := AppendVerification(blk, v); err != nil {
+			t.Fatalf("append verification %d: %v", i, err)
+		}
+	}
+	if blk.Finalized {
+		t.Fatalf("block should not finalize when accepted votes below threshold")
+	}
+	if err := AppendVerification(blk, BlockVerification{Peer: "v4", Accepted: true}); err != nil {
+		t.Fatalf("append final verification: %v", err)
+	}
+	if !blk.Finalized {
+		t.Fatalf("block should finalize once accepted votes reach threshold")
+	}
+}
