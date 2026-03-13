@@ -277,10 +277,27 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 	}
 
 	wg.Wait()
-	for _, r := range results {
-		block.BlockVerifications[r.Peer] = r.Accepted
+	// Guard against duplicate peers when a block already carries verification
+	// metadata (e.g. received from the network) before local verifier results
+	// are merged.
+	existingPeers := make(map[string]struct{}, len(block.Verifications))
+	merged := make([]BlockVerification, 0, len(block.Verifications)+len(results))
+	for _, v := range block.Verifications {
+		if _, seen := existingPeers[v.Peer]; seen {
+			continue
+		}
+		existingPeers[v.Peer] = struct{}{}
+		block.BlockVerifications[v.Peer] = v.Accepted
+		merged = append(merged, v)
 	}
-	block.Verifications = append(block.Verifications, results...)
+	for _, r := range results {
+		if _, seen := existingPeers[r.Peer]; seen {
+			continue
+		}
+		block.BlockVerifications[r.Peer] = r.Accepted
+		merged = append(merged, r)
+	}
+	block.Verifications = merged
 	markFinalizedIfThresholdReached(block)
 
 	totalVotes := len(verifiers) + 1

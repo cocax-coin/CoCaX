@@ -69,6 +69,15 @@ func TestResolveForkPrefersFinalizedBlocks(t *testing.T) {
 	dir := t.TempDir()
 	state, _ := LoadState(dir, "")
 
+	orig := SnapshotValidatorSet()
+	validatorSet := make(map[string]Validator)
+	for i := 0; i < FinalizationThreshold; i++ {
+		peerID := fmt.Sprintf("peer-%d", i)
+		validatorSet[peerID] = Validator{ID: peerID, Active: true}
+	}
+	ReplaceValidatorSet(validatorSet)
+	defer ReplaceValidatorSet(orig)
+
 	minerPriv, _ := GenerateKeyPair()
 	minerAddr := DeriveAddress(&minerPriv.PublicKey)
 
@@ -80,10 +89,18 @@ func TestResolveForkPrefersFinalizedBlocks(t *testing.T) {
 	altBlock := *blockA
 	altBlock.Miner = fmt.Sprintf("%s-alt", minerAddr)
 	altBlock.Hash = BlockHash(&altBlock)
-	altBlock.Finalized = true
-	altBlock.Verifications = make([]BlockVerification, FinalizationThreshold)
-	for i := 0; i < FinalizationThreshold; i++ {
-		altBlock.Verifications[i] = BlockVerification{Peer: fmt.Sprintf("peer-%d", i), Accepted: true}
+	votesToAdd := calculateFinalizationThreshold() - len(altBlock.Verifications)
+	if votesToAdd < 0 {
+		votesToAdd = 0
+	}
+	for i := 0; i < votesToAdd; i++ {
+		peerID := fmt.Sprintf("peer-%d", i)
+		if err := AppendVerification(&altBlock, BlockVerification{Peer: peerID, Accepted: true}); err != nil {
+			t.Fatalf("AppendVerification: %v", err)
+		}
+	}
+	if !altBlock.Finalized {
+		t.Fatalf("expected alternate block to be finalized")
 	}
 
 	adopted, err := ResolveFork(state, &altBlock, dir)

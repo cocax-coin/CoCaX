@@ -4,10 +4,10 @@ import (
 	"math"
 )
 
-// finalizationThreshold returns the number of validator confirmations required
-// to finalize a block. It uses a 2/3 majority of active validators with a
+// calculateFinalizationThreshold returns the number of validator confirmations required
+// to finalize a block. It uses a ceil(2/3) fraction of active validators with a
 // minimum static threshold to guard against very small validator sets.
-func finalizationThreshold() int {
+func calculateFinalizationThreshold() int {
 	validatorMu.RLock()
 	active := 0
 	for _, v := range ValidatorSet {
@@ -17,7 +17,10 @@ func finalizationThreshold() int {
 	}
 	validatorMu.RUnlock()
 
-	dynamic := int(math.Ceil((2.0 * float64(active)) / 3.0))
+	if active == 0 {
+		return -1
+	}
+	dynamic := int(math.Ceil((float64(active) * 2.0) / 3.0))
 	if dynamic < 1 {
 		dynamic = 1
 	}
@@ -33,7 +36,11 @@ func markFinalizedIfThresholdReached(block *Block) {
 	if block == nil || block.Finalized {
 		return
 	}
-	if len(block.Verifications) >= finalizationThreshold() {
+	threshold := calculateFinalizationThreshold()
+	if threshold <= 0 {
+		return
+	}
+	if len(block.Verifications) >= threshold {
 		block.Finalized = true
 	}
 }

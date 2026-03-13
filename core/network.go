@@ -215,22 +215,24 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 		if blk.Hash == "" {
 			blk.Hash = BlockHash(&blk)
 		}
-		if updated := n.tryFinalizeExistingBlock(&blk); updated {
-			n.recordBlockHash(blk.Hash)
-			n.BroadcastBlock(&blk)
-			return
-		}
-		if adopted, err := ResolveFork(n.state, &blk, n.dataDir); err != nil {
-			log.Printf("[P2P] Fork resolution failed: %v", err)
-			return
-		} else if adopted {
-			n.recordBlockHash(blk.Hash)
+		if n.tryFinalizeExistingBlock(&blk) {
 			n.BroadcastBlock(&blk)
 			return
 		}
 		if n.hasSeenBlock(blk.Hash) || n.chainHasBlock(blk.Hash) {
 			return
 		}
+		adopted, err := ResolveFork(n.state, &blk, n.dataDir)
+		if err != nil {
+			log.Printf("[P2P] Fork resolution failed: %v", err)
+			return
+		}
+		if adopted {
+			n.BroadcastBlock(&blk)
+			return
+		}
+		// If the candidate was not adopted as a finalized fork, process it as a
+		// standard block addition.
 		if err := AddBlock(n.state, &blk, n.dataDir); err != nil {
 			log.Printf("[P2P] Rejected block %s: %v", blk.Hash, err)
 			return
@@ -261,6 +263,14 @@ func (n *P2PNode) tryFinalizeExistingBlock(block *Block) bool {
 		if err := SaveState(n.dataDir, n.state); err != nil {
 			log.Printf("[P2P] Failed to persist finalized block: %v", err)
 		}
+	}
+	if updated {
+		n.mu.Lock()
+		if n.finalizedBroadcasts == nil {
+			n.finalizedBroadcasts = make(map[string]bool)
+		}
+		n.finalizedBroadcasts[block.Hash] = true
+		n.mu.Unlock()
 	}
 	return updated
 }
@@ -339,16 +349,14 @@ func (n *P2PNode) BroadcastBlock(block *Block) {
 	}
 	n.mu.Lock()
 	alreadyFinalized := n.finalizedBroadcasts[block.Hash]
+	if block.Finalized && !alreadyFinalized {
+		n.finalizedBroadcasts[block.Hash] = true
+	}
+	forceBroadcast := block.Finalized && !alreadyFinalized
 	n.mu.Unlock()
 
-	forceBroadcast := block.Finalized && !alreadyFinalized
 	if !forceBroadcast && n.hasSeenBlock(block.Hash) {
 		return
-	}
-	if block.Finalized {
-		n.mu.Lock()
-		n.finalizedBroadcasts[block.Hash] = true
-		n.mu.Unlock()
 	}
 	n.recordBlockHash(block.Hash)
 	n.broadcastMessage("block", block)

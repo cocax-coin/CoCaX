@@ -37,10 +37,25 @@ func ResolveFork(state *ChainState, candidate *Block, dataDir string) (bool, err
 	if !candidate.Finalized {
 		return false, nil
 	}
+	seenPeers := make(map[string]struct{}, len(candidate.Verifications))
+	for _, v := range candidate.Verifications {
+		if v.Peer == "" {
+			return false, fmt.Errorf("candidate verification missing peer id")
+		}
+		if _, dup := seenPeers[v.Peer]; dup {
+			return false, fmt.Errorf("duplicate verification from %s", v.Peer)
+		}
+		seenPeers[v.Peer] = struct{}{}
+	}
 
-	baseChain := append([]Block(nil), state.Chain[:chainLen-1]...)
+	baseChain := make([]Block, chainLen-1)
+	copy(baseChain, state.Chain[:chainLen-1])
 	rebuilt, err := rebuildStateFromChain(baseChain)
 	if err != nil {
+		return false, err
+	}
+
+	if err := VerifyBlock(rebuilt, candidate); err != nil {
 		return false, err
 	}
 
@@ -62,9 +77,15 @@ func rebuildStateFromChain(chain []Block) (*ChainState, error) {
 		Accounts: make(map[string]*Account),
 		Mempool:  []Transaction{},
 	}
+	// Default to the configured founder but prefer the address encoded in the
+	// genesis transaction when available so replayed state matches persisted
+	// chain metadata.
 	founderAddr := FounderAddress
-	if len(chain) > 0 && len(chain[0].Transactions) > 0 && chain[0].Transactions[0].To != "" {
-		founderAddr = chain[0].Transactions[0].To
+	if len(chain) > 0 {
+		genesis := chain[0]
+		if len(genesis.Transactions) > 0 && genesis.Transactions[0].To != "" {
+			founderAddr = genesis.Transactions[0].To
+		}
 	}
 	cs.Accounts[founderAddr] = &Account{Address: founderAddr, Balance: FounderAllocation}
 	cs.MintedSupply = FounderAllocation
@@ -89,7 +110,7 @@ func rebuildStateFromChain(chain []Block) (*ChainState, error) {
 			}
 			from := cs.Accounts[tx.From]
 			if from == nil {
-				from = &Account{Address: tx.From}
+				return nil, fmt.Errorf("missing sender account during rebuild: %s", tx.From)
 			}
 			from.Balance -= tx.Amount + tx.Fee
 			from.Nonce = tx.Nonce
