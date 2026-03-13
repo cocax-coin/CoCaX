@@ -13,6 +13,9 @@ func (b *Block) AppendVerification(v Verification, pubKey *ecdsa.PublicKey) erro
 	if b == nil {
 		return errors.New("block is nil")
 	}
+	if b.Finalized {
+		return errors.New("block is finalized")
+	}
 	if pubKey == nil {
 		return errors.New("verifier public key is required")
 	}

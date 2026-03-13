@@ -280,7 +280,8 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 	for _, r := range results {
 		block.BlockVerifications[r.Peer] = r.Accepted
 	}
-	block.Verifications = results
+	block.Verifications = append(block.Verifications, results...)
+	markFinalizedIfThresholdReached(block)
 
 	totalVotes := len(verifiers) + 1
 	majority := totalVotes/2 + 1

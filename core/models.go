@@ -7,18 +7,19 @@ import (
 
 // Chain / economics constants.
 const (
-	CoinName          = "CoCaX"
-	Ticker            = "CoX"
-	AddressPrefix     = "CoX"
-	ChainID           = uint64(11121633)
-	GenesisMessage    = "For united peoples working together. To hell with geography and borders, let us unite!"
-	TotalSupplyCap    = 33_000_000.0
-	BaseBlockReward   = 3.3
-	HalvingInterval   = uint64(1_000_000)
-	FixedFee          = 0.01
-	FounderAddress    = "0x1111111111111111111111111111111111111111"
-	FounderAllocation = 3_300_000.0
-	TargetBlockTime   = 30 * time.Second
+	CoinName              = "CoCaX"
+	Ticker                = "CoX"
+	AddressPrefix         = "CoX"
+	ChainID               = uint64(11121633)
+	GenesisMessage        = "For united peoples working together. To hell with geography and borders, let us unite!"
+	TotalSupplyCap        = 33_000_000.0
+	BaseBlockReward       = 3.3
+	HalvingInterval       = uint64(1_000_000)
+	FixedFee              = 0.01
+	FounderAddress        = "0x1111111111111111111111111111111111111111"
+	FounderAllocation     = 3_300_000.0
+	TargetBlockTime       = 30 * time.Second
+	FinalizationThreshold = 3
 )
 
 // MempoolMaxSize sets an upper bound on pending transactions held in memory.
@@ -56,6 +57,7 @@ type Block struct {
 	Memo               string              `json:"memo,omitempty"`
 	Verifications      []BlockVerification `json:"verifications,omitempty"`
 	CrossSigs          map[string]string   `json:"cross_sigs,omitempty"` // optional peer signatures for PoVS
+	Finalized          bool                `json:"finalized"`
 	BlockVerifications map[string]bool     `json:"block_verifications,omitempty"`
 	VerifiedSequence   []Verification      `json:"verified_sequence,omitempty"`
 }
