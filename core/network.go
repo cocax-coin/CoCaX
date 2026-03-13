@@ -439,7 +439,9 @@ func (n *P2PNode) fetchBlocksFresh(addr string, from int) error {
 	if err := dec.Decode(&peerHello); err != nil {
 		return err
 	}
-	_ = peerHello
+	if peerHello.Type != "hello" {
+		return fmt.Errorf("expected hello from %s, got %s", addr, peerHello.Type)
+	}
 
 	n.state.mu.RLock()
 	chainLen := len(n.state.Chain)
@@ -461,9 +463,7 @@ func (n *P2PNode) replaceChain(newChain []Block, localChain []Block) error {
 	for i := range localChain {
 		if localChain[i].Finalized {
 			lastFinalized = i
-			continue
 		}
-		break
 	}
 	if lastFinalized >= 0 {
 		if len(newChain) <= lastFinalized || newChain[lastFinalized].Hash != localChain[lastFinalized].Hash {

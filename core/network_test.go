@@ -116,8 +116,14 @@ func TestP2PSyncFetchesMissingBlocks(t *testing.T) {
 	dirLong := t.TempDir()
 	dirShort := t.TempDir()
 
-	csLong, _ := core.LoadState(dirLong, "")
-	csShort, _ := core.LoadState(dirShort, "")
+	csLong, err := core.LoadState(dirLong, "")
+	if err != nil {
+		t.Fatalf("LoadState long: %v", err)
+	}
+	csShort, err := core.LoadState(dirShort, "")
+	if err != nil {
+		t.Fatalf("LoadState short: %v", err)
+	}
 
 	minerPriv, _ := core.GenerateKeyPair()
 	minerAddr := core.DeriveAddress(&minerPriv.PublicKey)
