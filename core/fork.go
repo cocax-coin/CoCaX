@@ -2,9 +2,21 @@ package core
 
 import "fmt"
 
-// ResolveFork attempts to replace the current chain tip with a finalized
+func countAcceptedVerifications(b Block) int {
+	accepted := 0
+	for _, v := range b.Verifications {
+		if v.Accepted {
+			accepted++
+		}
+	}
+	return accepted
+}
+
+// ResolveFork attempts to replace the current chain tip with a better-confirmed
 // candidate block that builds on the same parent as the existing head. It
-// returns true when the candidate was adopted.
+// prefers finalized candidates and, when not finalized, requires strictly more
+// accepted validator confirmations than the current tip. It returns true when
+// the candidate was adopted.
 func ResolveFork(state *ChainState, candidate *Block, dataDir string) (bool, error) {
 	if state == nil || candidate == nil {
 		return false, fmt.Errorf("state or candidate is nil")
@@ -31,10 +43,16 @@ func ResolveFork(state *ChainState, candidate *Block, dataDir string) (bool, err
 	if candidate.PrevHash != parent.Hash {
 		return false, nil
 	}
+	tipAccepted := countAcceptedVerifications(tip)
+	candidateAccepted := countAcceptedVerifications(*candidate)
 	if tip.Finalized && !candidate.Finalized {
 		return false, nil
 	}
-	if !candidate.Finalized {
+	if candidate.Finalized {
+		if tip.Finalized && candidateAccepted < tipAccepted {
+			return false, nil
+		}
+	} else if candidateAccepted <= tipAccepted {
 		return false, nil
 	}
 	seenPeers := make(map[string]struct{}, len(candidate.Verifications))
