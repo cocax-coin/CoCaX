@@ -291,7 +291,8 @@ func AddBlock(state *ChainState, block *Block, dataDir string, verifiers ...Bloc
 		block.BlockVerifications[v.Peer] = v.Accepted
 		merged = append(merged, v)
 	}
-	sortedResults := append([]BlockVerification(nil), results...)
+	sortedResults := make([]BlockVerification, len(results))
+	copy(sortedResults, results)
 	sort.Slice(sortedResults, func(i, j int) bool {
 		return sortedResults[i].Peer < sortedResults[j].Peer
 	})
