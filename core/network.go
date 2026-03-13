@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -32,6 +33,14 @@ type P2PMessage struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+type helloPayload struct {
+	ChainLength int `json:"chain_length"`
+}
+
+type getBlocksRequest struct {
+	From int `json:"from"`
+}
+
 // VerifyBlockRequest is sent to peers for PoVS validation.
 type VerifyBlockRequest struct {
 	BlockID   string `json:"block_id"`
@@ -49,6 +58,8 @@ const (
 	seenCacheLimit = 2048
 	seenCacheTTL   = 30 * time.Minute
 )
+
+var errFullSyncRequired = errors.New("full sync required")
 
 // NewP2PNode creates a new P2PNode.
 func NewP2PNode(listenAddr string, peers []string, state *ChainState, dataDir string) *P2PNode {
@@ -147,99 +158,111 @@ func (n *P2PNode) handleConn(conn net.Conn) {
 	}
 
 	dec := json.NewDecoder(conn)
-	var msg P2PMessage
-	if err := dec.Decode(&msg); err != nil {
-		return
-	}
+	for {
+		var msg P2PMessage
+		if err := dec.Decode(&msg); err != nil {
+			return
+		}
 
-	switch msg.Type {
-	case "hello":
-		log.Printf("[P2P] Peer connected from %s", conn.RemoteAddr())
-	case "get_blocks":
-		n.state.mu.RLock()
-		blocks := n.state.Chain
-		n.state.mu.RUnlock()
-		resp := P2PMessage{Type: "blocks"}
-		data, _ := json.Marshal(blocks)
-		resp.Payload = data
-		if err := enc.Encode(resp); err != nil {
-			log.Printf("[P2P] Failed to send blocks: %v", err)
-		}
-	case "verify_block":
-		var req VerifyBlockRequest
-		if err := json.Unmarshal(msg.Payload, &req); err != nil {
-			log.Printf("[P2P] Failed to decode verify request: %v", err)
-			return
-		}
-		err := VerifyBlock(n.state, &req.BlockData)
-		if err != nil {
-			log.Printf("[P2P] verify_block failed: %v", err)
-		}
-		resp := P2PMessage{Type: "verify_block_response"}
-		body := VerifyBlockResponse{BlockID: req.BlockID, Accept: err == nil}
-		if err != nil {
-			body.Reason = err.Error()
-		}
-		respPayload, payloadErr := json.Marshal(body)
-		if payloadErr != nil {
-			log.Printf("[P2P] Failed to marshal verify response: %v", payloadErr)
-			return
-		}
-		resp.Payload = respPayload
-		if err := enc.Encode(resp); err != nil {
-			log.Printf("[P2P] Failed to send verify response: %v", err)
-		}
-	case "tx":
-		var tx Transaction
-		if err := json.Unmarshal(msg.Payload, &tx); err != nil {
-			log.Printf("[P2P] Failed to decode tx: %v", err)
-			return
-		}
-		if tx.ID == "" {
-			tx.ID = TxID(&tx)
-		}
-		if n.hasSeenTx(tx.ID) {
-			return
-		}
-		if err := AddTxToMempool(n.state, &tx); err != nil {
-			log.Printf("[P2P] Rejected tx %s: %v", tx.ID, err)
-			return
-		}
-		n.BroadcastTx(&tx)
-	case "block":
-		var blk Block
-		if err := json.Unmarshal(msg.Payload, &blk); err != nil {
-			log.Printf("[P2P] Failed to decode block: %v", err)
-			return
-		}
-		if blk.Hash == "" {
-			blk.Hash = BlockHash(&blk)
-		}
-		if n.tryFinalizeExistingBlock(&blk) {
+		switch msg.Type {
+		case "hello":
+			log.Printf("[P2P] Peer connected from %s", conn.RemoteAddr())
+		case "get_blocks":
+			var req getBlocksRequest
+			if len(msg.Payload) > 0 {
+				_ = json.Unmarshal(msg.Payload, &req)
+			}
+			if req.From < 0 {
+				req.From = 0
+			}
+			n.state.mu.RLock()
+			if req.From > len(n.state.Chain) {
+				req.From = len(n.state.Chain)
+			}
+			blocks := n.state.Chain[req.From:]
+			n.state.mu.RUnlock()
+			resp := P2PMessage{Type: "blocks"}
+			data, _ := json.Marshal(blocks)
+			resp.Payload = data
+			if err := enc.Encode(resp); err != nil {
+				log.Printf("[P2P] Failed to send blocks: %v", err)
+			}
+		case "verify_block":
+			var req VerifyBlockRequest
+			if err := json.Unmarshal(msg.Payload, &req); err != nil {
+				log.Printf("[P2P] Failed to decode verify request: %v", err)
+				return
+			}
+			err := VerifyBlock(n.state, &req.BlockData)
+			if err != nil {
+				log.Printf("[P2P] verify_block failed: %v", err)
+			}
+			resp := P2PMessage{Type: "verify_block_response"}
+			body := VerifyBlockResponse{BlockID: req.BlockID, Accept: err == nil}
+			if err != nil {
+				body.Reason = err.Error()
+			}
+			respPayload, payloadErr := json.Marshal(body)
+			if payloadErr != nil {
+				log.Printf("[P2P] Failed to marshal verify response: %v", payloadErr)
+				return
+			}
+			resp.Payload = respPayload
+			if err := enc.Encode(resp); err != nil {
+				log.Printf("[P2P] Failed to send verify response: %v", err)
+			}
+		case "tx":
+			var tx Transaction
+			if err := json.Unmarshal(msg.Payload, &tx); err != nil {
+				log.Printf("[P2P] Failed to decode tx: %v", err)
+				return
+			}
+			if tx.ID == "" {
+				tx.ID = TxID(&tx)
+			}
+			if n.hasSeenTx(tx.ID) {
+				return
+			}
+			if err := AddTxToMempool(n.state, &tx); err != nil {
+				log.Printf("[P2P] Rejected tx %s: %v", tx.ID, err)
+				return
+			}
+			n.BroadcastTx(&tx)
+		case "block":
+			var blk Block
+			if err := json.Unmarshal(msg.Payload, &blk); err != nil {
+				log.Printf("[P2P] Failed to decode block: %v", err)
+				return
+			}
+			if blk.Hash == "" {
+				blk.Hash = BlockHash(&blk)
+			}
+			if n.tryFinalizeExistingBlock(&blk) {
+				n.BroadcastBlock(&blk)
+				return
+			}
+			if n.hasSeenBlock(blk.Hash) || n.chainHasBlock(blk.Hash) {
+				return
+			}
+			adopted, err := ResolveFork(n.state, &blk, n.dataDir)
+			if err != nil {
+				log.Printf("[P2P] Fork resolution failed: %v", err)
+				return
+			}
+			if adopted {
+				n.BroadcastBlock(&blk)
+				return
+			}
+			// If the candidate was not adopted as a finalized fork, process it as a
+			// standard block addition.
+			if err := AddBlock(n.state, &blk, n.dataDir); err != nil {
+				log.Printf("[P2P] Rejected block %s: %v", blk.Hash, err)
+				return
+			}
 			n.BroadcastBlock(&blk)
-			return
+		default:
+			log.Printf("[P2P] Unknown message type: %s", msg.Type)
 		}
-		if n.hasSeenBlock(blk.Hash) || n.chainHasBlock(blk.Hash) {
-			return
-		}
-		adopted, err := ResolveFork(n.state, &blk, n.dataDir)
-		if err != nil {
-			log.Printf("[P2P] Fork resolution failed: %v", err)
-			return
-		}
-		if adopted {
-			n.BroadcastBlock(&blk)
-			return
-		}
-		// If the candidate was not adopted as a finalized fork, process it as a
-		// standard block addition.
-		if err := AddBlock(n.state, &blk, n.dataDir); err != nil {
-			log.Printf("[P2P] Rejected block %s: %v", blk.Hash, err)
-			return
-		}
-		n.BroadcastBlock(&blk)
-	default:
-		log.Printf("[P2P] Unknown message type: %s", msg.Type)
 	}
 }
 
@@ -297,6 +320,10 @@ func (n *P2PNode) connectPeer(addr string) {
 	if err := dec.Decode(&msg); err != nil {
 		return
 	}
+	var peerHello helloPayload
+	if msg.Type == "hello" && len(msg.Payload) > 0 {
+		_ = json.Unmarshal(msg.Payload, &peerHello)
+	}
 
 	// Respond with our hello.
 	n.state.mu.RLock()
@@ -320,6 +347,152 @@ func (n *P2PNode) connectPeer(addr string) {
 	}
 
 	fmt.Printf("[P2P] Handshake complete with %s (peer msg type: %s)\n", addr, msg.Type)
+
+	if peerHello.ChainLength > chainLen {
+		if err := n.requestBlocks(dec, enc, chainLen, addr); err != nil {
+			if errors.Is(err, errFullSyncRequired) {
+				if fullErr := n.fetchBlocksFresh(addr, 0); fullErr != nil {
+					log.Printf("[P2P] Failed to full-sync from %s: %v", addr, fullErr)
+				}
+				return
+			}
+			log.Printf("[P2P] Failed to sync from %s: %v", addr, err)
+		}
+	}
+}
+
+func (n *P2PNode) requestBlocks(dec *json.Decoder, enc *json.Encoder, from int, addr string) error {
+	reqPayload, _ := json.Marshal(getBlocksRequest{From: from})
+	req := P2PMessage{Type: "get_blocks", Payload: reqPayload}
+	if err := enc.Encode(req); err != nil {
+		return fmt.Errorf("send get_blocks to %s: %w", addr, err)
+	}
+
+	var resp P2PMessage
+	if err := dec.Decode(&resp); err != nil {
+		return fmt.Errorf("read get_blocks response from %s: %w", addr, err)
+	}
+	if resp.Type != "blocks" {
+		return fmt.Errorf("unexpected response type %s from %s", resp.Type, addr)
+	}
+
+	var blocks []Block
+	if err := json.Unmarshal(resp.Payload, &blocks); err != nil {
+		return fmt.Errorf("decode blocks from %s: %w", addr, err)
+	}
+	if len(blocks) == 0 {
+		return nil
+	}
+	return n.applySyncedBlocks(blocks)
+}
+
+func (n *P2PNode) applySyncedBlocks(blocks []Block) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	n.state.RLock()
+	localLen := len(n.state.Chain)
+	var localTipHash string
+	if localLen > 0 {
+		localTipHash = n.state.Chain[localLen-1].Hash
+	}
+	localChain := make([]Block, localLen)
+	copy(localChain, n.state.Chain)
+	n.state.RUnlock()
+
+	// If the peer sent a full chain, consider full replacement with safety
+	// against finalized rollbacks.
+	if blocks[0].Index == 0 {
+		return n.replaceChain(blocks, localChain)
+	}
+
+	// Fast-path append when chains share the same tip.
+	if int(blocks[0].Index) != localLen || blocks[0].PrevHash != localTipHash {
+		// Fallback to full chain replacement attempt.
+		return errFullSyncRequired
+	}
+
+	for i := range blocks {
+		blk := blocks[i]
+		if err := AddBlock(n.state, &blk, n.dataDir); err != nil {
+			return fmt.Errorf("append block %d: %w", blk.Index, err)
+		}
+	}
+	return nil
+}
+
+func (n *P2PNode) fetchBlocksFresh(addr string, from int) error {
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		return err
+	}
+
+	dec := json.NewDecoder(conn)
+	enc := json.NewEncoder(conn)
+
+	var peerHello P2PMessage
+	if err := dec.Decode(&peerHello); err != nil {
+		return err
+	}
+	_ = peerHello
+
+	n.state.mu.RLock()
+	chainLen := len(n.state.Chain)
+	n.state.mu.RUnlock()
+
+	replyPayload, _ := json.Marshal(map[string]interface{}{
+		"node":         "CoCaX-Core",
+		"chain_id":     ChainID,
+		"chain_length": chainLen,
+	})
+	if err := enc.Encode(P2PMessage{Type: "hello", Payload: replyPayload}); err != nil {
+		return err
+	}
+	return n.requestBlocks(dec, enc, from, addr)
+}
+
+func (n *P2PNode) replaceChain(newChain []Block, localChain []Block) error {
+	lastFinalized := -1
+	for i := range localChain {
+		if localChain[i].Finalized {
+			lastFinalized = i
+			continue
+		}
+		break
+	}
+	if lastFinalized >= 0 {
+		if len(newChain) <= lastFinalized || newChain[lastFinalized].Hash != localChain[lastFinalized].Hash {
+			return fmt.Errorf("peer chain diverges before finalized block %d", lastFinalized)
+		}
+	}
+
+	rebuilt, err := rebuildStateFromChain(newChain)
+	if err != nil {
+		return fmt.Errorf("rebuild from peer chain failed: %w", err)
+	}
+
+	n.state.Lock()
+	n.state.Chain = rebuilt.Chain
+	n.state.Accounts = rebuilt.Accounts
+	n.state.MintedSupply = rebuilt.MintedSupply
+	// preserve local mempool to avoid losing pending txs during sync
+	n.state.Unlock()
+
+	n.indexExistingBlocks()
+
+	if n.dataDir != "" {
+		n.state.RLock()
+		if err := SaveState(n.dataDir, n.state); err != nil {
+			log.Printf("[P2P] Failed to persist synced chain: %v", err)
+		}
+		n.state.RUnlock()
+	}
+	return nil
 }
 
 // BroadcastTx propagates a validated transaction to all configured peers while

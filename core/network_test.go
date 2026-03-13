@@ -108,3 +108,36 @@ func TestP2PBlockBroadcastAppendsToPeerChain(t *testing.T) {
 		return len(cs2.Chain) >= 2 && cs2.Chain[len(cs2.Chain)-1].Hash == block.Hash
 	})
 }
+
+func TestP2PSyncFetchesMissingBlocks(t *testing.T) {
+	addrLong := freeAddr(t)
+	addrShort := freeAddr(t)
+
+	dirLong := t.TempDir()
+	dirShort := t.TempDir()
+
+	csLong, _ := core.LoadState(dirLong, "")
+	csShort, _ := core.LoadState(dirShort, "")
+
+	minerPriv, _ := core.GenerateKeyPair()
+	minerAddr := core.DeriveAddress(&minerPriv.PublicKey)
+
+	if _, err := core.MineBlock(csLong, minerAddr, dirLong); err != nil {
+		t.Fatalf("MineBlock (1): %v", err)
+	}
+	if _, err := core.MineBlock(csLong, minerAddr, dirLong); err != nil {
+		t.Fatalf("MineBlock (2): %v", err)
+	}
+
+	p2pLong := core.NewP2PNode(addrLong, nil, csLong, dirLong)
+	p2pLong.Start()
+	p2pShort := core.NewP2PNode(addrShort, []string{addrLong}, csShort, dirShort)
+	p2pShort.Start()
+
+	wantHeight := len(csLong.Chain)
+	waitFor(t, time.Now().Add(4*time.Second), func() bool {
+		csShort.RLock()
+		defer csShort.RUnlock()
+		return len(csShort.Chain) == wantHeight
+	})
+}
