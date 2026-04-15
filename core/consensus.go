@@ -147,6 +147,7 @@ func VerifyBlock(state *ChainState, block *Block) error {
 // CreateBlockTemplate builds a block candidate from the current mempool without
 // mutating state.
 func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
+	PruneExpiredMempool(state)
 	state.mu.RLock()
 	if len(state.Chain) == 0 {
 		state.mu.RUnlock()

@@ -43,17 +43,25 @@ func ResolveFork(state *ChainState, candidate *Block, dataDir string) (bool, err
 	if candidate.PrevHash != parent.Hash {
 		return false, nil
 	}
+	currentTipWork := BlockWork(tip.Difficulty)
+	candidateTipWork := BlockWork(candidate.Difficulty)
+	workCmp := candidateTipWork.Cmp(currentTipWork)
+	if workCmp < 0 {
+		return false, nil
+	}
 	tipAccepted := countAcceptedVerifications(tip)
 	candidateAccepted := countAcceptedVerifications(*candidate)
 	if tip.Finalized && !candidate.Finalized {
 		return false, nil
 	}
-	if candidate.Finalized {
-		if tip.Finalized && candidateAccepted < tipAccepted {
+	if workCmp == 0 {
+		if candidate.Finalized {
+			if tip.Finalized && candidateAccepted < tipAccepted {
+				return false, nil
+			}
+		} else if candidateAccepted <= tipAccepted {
 			return false, nil
 		}
-	} else if candidateAccepted <= tipAccepted {
-		return false, nil
 	}
 	seenPeers := make(map[string]struct{}, len(candidate.Verifications))
 	for _, v := range candidate.Verifications {

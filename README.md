@@ -119,6 +119,7 @@ Total supply is hard-capped at 33,000,000 CoX.
 Base URL: `http://localhost:8080` (default)
 
 CORS is enabled for all origins (`*`). OPTIONS pre-flight returns `204 No Content`.
+RPC write paths (`/rpc`, `/tx/submit`) apply per-IP rate limiting and may return `429 Too Many Requests` during bursts.
 
 ### GET `/balance/{address}` (aliases: `/balance?address=...`, `/api/balance/...`)
 Returns address balance and nonce (supports both path and `address` query param).
@@ -392,9 +393,9 @@ Or open the wallet UI at **`http://localhost:8080/`** and log in with your mnemo
 
 ## Known Limitations
 
-1. **P2P sync** – Peers exchange a handshake but full block synchronisation (chain download/merge) is not implemented. The P2P layer is functional for future extension.
+1. **P2P sync** – Nodes perform full chain sync via `get_blocks` and adopt the chain with higher cumulative PoW work (total difficulty), while preserving finalized-history safety.
 2. **Mnemonic compatibility** – The 256-word list is a simplified subset; it is *not* BIP-39 compatible (different word list and no checksum). Keys derived from the same mnemonic phrase will always be consistent within CoXaNa.
-3. **Single-node mempool** – The mempool is in-memory only. Submitted transactions are not broadcast to peers.
+3. **Mempool persistence** – The mempool is in-memory only across restarts; pending transactions are still gossiped in-process and pruned after 24h.
 4. **PoVS consensus** – Block creation remains permissioned via the `-miner` flag for the demo; blocks are verified by peers using Proof-of-Verified-Sequence voting.
 
 ---

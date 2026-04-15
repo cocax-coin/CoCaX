@@ -24,7 +24,10 @@ const (
 
 // MempoolMaxSize sets an upper bound on pending transactions held in memory.
 // Defined as a variable to permit tuning in tests.
-var MempoolMaxSize = 1024
+var MempoolMaxSize = 5000
+
+// MempoolTxTTL defines how long an unconfirmed transaction may remain in mempool.
+const MempoolTxTTL = 24 * time.Hour
 
 // Transaction represents a signed CoCaX transaction.
 type Transaction struct {

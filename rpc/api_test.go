@@ -160,6 +160,31 @@ func TestBlocksEndpoint(t *testing.T) {
 	}
 }
 
+func TestBlocksEndpointIncludesPoWFields(t *testing.T) {
+	srv, _ := newTestServer(t)
+	resp, err := http.Get(srv.URL + "/blocks")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var blocks []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&blocks); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(blocks) == 0 {
+		t.Fatalf("expected at least one block")
+	}
+	if _, ok := blocks[0]["difficulty"]; !ok {
+		t.Fatalf("difficulty field missing from /blocks response")
+	}
+	if _, ok := blocks[0]["nonce"]; !ok {
+		t.Fatalf("nonce field missing from /blocks response")
+	}
+}
+
 func TestHeightEndpoint(t *testing.T) {
 	srv, cs := newTestServer(t)
 	resp, err := http.Get(srv.URL + "/height")
@@ -247,6 +272,24 @@ func callJSONRPC(t *testing.T, srvURL, method string, params interface{}) jsonRP
 		t.Fatalf("decode rpc response: %v", err)
 	}
 	return out
+}
+
+func postJSONRPCRaw(t *testing.T, srvURL, method string, params interface{}) *http.Response {
+	t.Helper()
+	payload, err := json.Marshal(jsonRPCRequest{
+		JSONRPC: "2.0",
+		Method:  method,
+		Params:  params,
+		ID:      1,
+	})
+	if err != nil {
+		t.Fatalf("marshal rpc request: %v", err)
+	}
+	resp, err := http.Post(srvURL+"/rpc", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("rpc request failed: %v", err)
+	}
+	return resp
 }
 
 func TestTxSubmit_ValidTx(t *testing.T) {
@@ -560,6 +603,22 @@ func TestJSONRPC_EthSendRawTransaction(t *testing.T) {
 		t.Fatalf("tx not added to mempool")
 	}
 	cs.RUnlock()
+}
+
+func TestJSONRPC_RateLimitExceeded(t *testing.T) {
+	srv, _ := newTestServer(t)
+	var got429 bool
+	for i := 0; i < 200; i++ {
+		resp := postJSONRPCRaw(t, srv.URL, "eth_chainId", []string{})
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			got429 = true
+			break
+		}
+	}
+	if !got429 {
+		t.Fatalf("expected at least one HTTP 429 from JSON-RPC rate limit")
+	}
 }
 
 func TestStatusEndpoint_ReturnsChainSummary(t *testing.T) {

@@ -348,16 +348,18 @@ func (n *P2PNode) connectPeer(addr string) {
 
 	fmt.Printf("[P2P] Handshake complete with %s (peer msg type: %s)\n", addr, msg.Type)
 
+	syncFrom := 0
 	if peerHello.ChainLength > chainLen {
-		if err := n.requestBlocks(dec, enc, chainLen, addr); err != nil {
-			if errors.Is(err, errFullSyncRequired) {
-				if fullErr := n.fetchBlocksFresh(addr, 0); fullErr != nil {
-					log.Printf("[P2P] Failed to full-sync from %s: %v", addr, fullErr)
-				}
-				return
+		syncFrom = chainLen
+	}
+	if err := n.requestBlocks(dec, enc, syncFrom, addr); err != nil {
+		if errors.Is(err, errFullSyncRequired) {
+			if fullErr := n.fetchBlocksFresh(addr, 0); fullErr != nil {
+				log.Printf("[P2P] Failed to full-sync from %s: %v", addr, fullErr)
 			}
-			log.Printf("[P2P] Failed to sync from %s: %v", addr, err)
+			return
 		}
+		log.Printf("[P2P] Failed to sync from %s: %v", addr, err)
 	}
 }
 
@@ -469,6 +471,10 @@ func (n *P2PNode) replaceChain(newChain []Block, localChain []Block) error {
 		if len(newChain) <= lastFinalized || newChain[lastFinalized].Hash != localChain[lastFinalized].Hash {
 			return fmt.Errorf("peer chain diverges before finalized block %d", lastFinalized)
 		}
+	}
+
+	if TotalDifficulty(newChain).Cmp(TotalDifficulty(localChain)) <= 0 {
+		return nil
 	}
 
 	rebuilt, err := rebuildStateFromChain(newChain)

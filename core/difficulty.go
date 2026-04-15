@@ -1,6 +1,7 @@
 package core
 
 import (
+	"math/big"
 	"strings"
 )
 
@@ -83,4 +84,20 @@ func ExpectedDifficulty(chain []Block) uint32 {
 	firstIdx := len(chain) - int(DifficultyAdjustmentWindow)
 	first := chain[firstIdx]
 	return CalculateNewDifficulty(&last, &first)
+}
+
+// BlockWork returns the relative PoW work represented by one block difficulty.
+// For CoCaX's leading-hex-zero rule, expected work scales by 16^difficulty.
+func BlockWork(difficulty uint32) *big.Int {
+	d := clampDifficulty(difficulty)
+	return new(big.Int).Exp(big.NewInt(16), big.NewInt(int64(d)), nil)
+}
+
+// TotalDifficulty returns cumulative work (sum of block work) for a chain.
+func TotalDifficulty(chain []Block) *big.Int {
+	total := big.NewInt(0)
+	for _, blk := range chain {
+		total.Add(total, BlockWork(blk.Difficulty))
+	}
+	return total
 }

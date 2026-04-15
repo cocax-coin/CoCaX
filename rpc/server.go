@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"cocax-core/core"
 )
@@ -31,6 +34,12 @@ type Server struct {
 	cacheMu       sync.RWMutex
 	cachedHeight  int
 	cachedTxCount int
+
+	rateMu     sync.Mutex
+	rateByIP   map[string]rateWindow
+	rateNowFn  func() time.Time
+	rateWindow time.Duration
+	rateMax    int
 }
 
 // smallSliceHint provides a modest preallocation to reduce reallocations when
@@ -49,13 +58,40 @@ type txWithMeta struct {
 	Status     string `json:"status"`
 }
 
+type blockResponse struct {
+	Index              uint64                   `json:"index"`
+	PrevHash           string                   `json:"prev_hash"`
+	Hash               string                   `json:"hash"`
+	Timestamp          int64                    `json:"timestamp"`
+	Difficulty         uint32                   `json:"difficulty"`
+	Nonce              uint64                   `json:"nonce"`
+	Transactions       []core.Transaction       `json:"transactions"`
+	Reward             float64                  `json:"reward"`
+	Miner              string                   `json:"miner"`
+	Memo               string                   `json:"memo,omitempty"`
+	Verifications      []core.BlockVerification `json:"verifications,omitempty"`
+	CrossSigs          map[string]string        `json:"cross_sigs,omitempty"`
+	Finalized          bool                     `json:"finalized"`
+	BlockVerifications map[string]bool          `json:"block_verifications,omitempty"`
+	VerifiedSequence   []core.Verification      `json:"verified_sequence,omitempty"`
+}
+
+type rateWindow struct {
+	start time.Time
+	count int
+}
+
 // NewServer creates a new RPC server.
 func NewServer(state *core.ChainState, dataDir, miner string, peers ...string) *Server {
 	return &Server{
-		state:   state,
-		dataDir: dataDir,
-		miner:   miner,
-		peers:   append([]string{}, peers...),
+		state:      state,
+		dataDir:    dataDir,
+		miner:      miner,
+		peers:      append([]string{}, peers...),
+		rateByIP:   make(map[string]rateWindow),
+		rateNowFn:  time.Now,
+		rateWindow: time.Minute,
+		rateMax:    120,
 	}
 }
 
@@ -220,6 +256,10 @@ func (a *Server) handleTransactions(w http.ResponseWriter, r *http.Request) {
 
 // handleTxSubmit serves POST /tx/submit.
 func (a *Server) handleTxSubmit(w http.ResponseWriter, r *http.Request) {
+	if !a.allowRPCRequest(r.RemoteAddr) {
+		jsonResponse(w, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
+		return
+	}
 	if r.Method != http.MethodPost {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -280,7 +320,27 @@ func (a *Server) handleBlocks(w http.ResponseWriter, r *http.Request) {
 	chain := make([]core.Block, chainLen-start)
 	copy(chain, a.state.Chain[start:])
 	a.state.RUnlock()
-	jsonResponse(w, http.StatusOK, chain)
+	response := make([]blockResponse, 0, len(chain))
+	for _, blk := range chain {
+		response = append(response, blockResponse{
+			Index:              blk.Index,
+			PrevHash:           blk.PrevHash,
+			Hash:               blk.Hash,
+			Timestamp:          blk.Timestamp,
+			Difficulty:         blk.Difficulty,
+			Nonce:              blk.Nonce,
+			Transactions:       blk.Transactions,
+			Reward:             blk.Reward,
+			Miner:              blk.Miner,
+			Memo:               blk.Memo,
+			Verifications:      blk.Verifications,
+			CrossSigs:          blk.CrossSigs,
+			Finalized:          blk.Finalized,
+			BlockVerifications: blk.BlockVerifications,
+			VerifiedSequence:   blk.VerifiedSequence,
+		})
+	}
+	jsonResponse(w, http.StatusOK, response)
 }
 
 // handleHeight serves GET /height.
@@ -495,6 +555,14 @@ func balanceToHexWei(balance float64) (string, error) {
 
 // handleJSONRPC serves POST /rpc (JSON-RPC 2.0) for MetaMask-style compatibility.
 func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	if !a.allowRPCRequest(r.RemoteAddr) {
+		jsonResponse(w, http.StatusTooManyRequests, rpcResponse{
+			JSONRPC: "2.0",
+			Error:   &rpcError{Code: -32005, Message: "rate limit exceeded"},
+			ID:      nil,
+		})
+		return
+	}
 	if r.Method != http.MethodPost {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -575,4 +643,33 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, res)
+}
+
+func (a *Server) allowRPCRequest(remoteAddr string) bool {
+	hostPort := strings.TrimSpace(remoteAddr)
+	if hostPort == "" {
+		return true
+	}
+	host := hostPort
+	if strings.Contains(hostPort, ":") {
+		if parsed, err := netip.ParseAddrPort(hostPort); err == nil {
+			host = parsed.Addr().String()
+		} else if h, _, splitErr := net.SplitHostPort(hostPort); splitErr == nil {
+			host = h
+		}
+	}
+	now := a.rateNowFn()
+	a.rateMu.Lock()
+	defer a.rateMu.Unlock()
+	window := a.rateByIP[host]
+	if window.start.IsZero() || now.Sub(window.start) >= a.rateWindow {
+		a.rateByIP[host] = rateWindow{start: now, count: 1}
+		return true
+	}
+	if window.count >= a.rateMax {
+		return false
+	}
+	window.count++
+	a.rateByIP[host] = window
+	return true
 }

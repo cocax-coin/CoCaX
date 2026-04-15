@@ -309,6 +309,8 @@ const wallet = {
   pubKeyY:    '',
   balance:    0,
   nonce:      0,
+  difficulty: 0,
+  hashPower:  0,
 };
 
 /* ============================================================
@@ -374,6 +376,56 @@ async function submitTx(tx) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+async function fetchHeight() {
+  const res = await fetch(`${API_BASE}/height`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function fetchLatestBlock() {
+  const heightData = await fetchHeight();
+  const height = Number(heightData.height || 0);
+  if (!Number.isFinite(height) || height <= 0) return null;
+  const from = Math.max(0, height - 1);
+  const res = await fetch(`${API_BASE}/blocks?from=${from}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blocks = await res.json();
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+  return blocks[blocks.length - 1];
+}
+
+function estimateHashPowerFromDifficulty(difficulty) {
+  const diff = Number(difficulty || 0);
+  if (!Number.isFinite(diff) || diff < 0) return 0;
+  return Math.pow(16, diff) / 30;
+}
+
+function formatHashRate(hashRate) {
+  const units = ['H/s', 'KH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s', 'EH/s'];
+  let value = Number(hashRate || 0);
+  if (!Number.isFinite(value) || value <= 0) return '0 H/s';
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  return `${value.toFixed(2)} ${units[unit]}`;
+}
+
+async function fetchPowStats() {
+  try {
+    const latest = await fetchLatestBlock();
+    if (!latest) return { difficulty: 0, hashPower: 0 };
+    const difficulty = Number(latest.difficulty || 0);
+    return {
+      difficulty,
+      hashPower: estimateHashPowerFromDifficulty(difficulty),
+    };
+  } catch (_) {
+    return { difficulty: 0, hashPower: 0 };
+  }
 }
 
 /* ============================================================
@@ -664,6 +716,12 @@ function updateDashboardUI(state) {
   if (document.getElementById('recv-address')) {
     document.getElementById('recv-address').textContent = state.address;
   }
+  if (document.getElementById('dash-difficulty')) {
+    document.getElementById('dash-difficulty').textContent = `${Number(state.difficulty || 0)}`;
+  }
+  if (document.getElementById('dash-hashpower')) {
+    document.getElementById('dash-hashpower').textContent = formatHashRate(state.hashPower || 0);
+  }
 }
 
 async function refreshBalanceUI(state) {
@@ -672,6 +730,9 @@ async function refreshBalanceUI(state) {
     const data = await fetchBalance(state.address);
     state.balance = data.balance || 0;
     state.nonce   = data.nonce   || 0;
+    const powStats = await fetchPowStats();
+    state.difficulty = powStats.difficulty;
+    state.hashPower = powStats.hashPower;
     updateDashboardUI(state);
     showMsg('dash-msg', '✓ Balance refreshed', 'success');
     setTimeout(() => showMsg('dash-msg', ''), 2000);

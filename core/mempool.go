@@ -3,7 +3,32 @@ package core
 import (
 	"fmt"
 	"sort"
+	"time"
 )
+
+func pruneExpiredMempoolLocked(state *ChainState, now time.Time) {
+	if state == nil || len(state.Mempool) == 0 {
+		return
+	}
+	cutoff := now.Add(-MempoolTxTTL).Unix()
+	kept := state.Mempool[:0]
+	for _, tx := range state.Mempool {
+		if tx.Timestamp >= cutoff {
+			kept = append(kept, tx)
+		}
+	}
+	state.Mempool = kept
+}
+
+// PruneExpiredMempool removes pending transactions older than MempoolTxTTL.
+func PruneExpiredMempool(state *ChainState) {
+	if state == nil {
+		return
+	}
+	state.Lock()
+	defer state.Unlock()
+	pruneExpiredMempoolLocked(state, time.Now())
+}
 
 // AddTxToMempool validates a transaction against the current chain state and,
 // on success, inserts it into the mempool with deterministic ordering.
@@ -23,6 +48,11 @@ func AddTxToMempool(state *ChainState, tx *Transaction) error {
 
 	state.Lock()
 	defer state.Unlock()
+	now := time.Now()
+	pruneExpiredMempoolLocked(state, now)
+	if tx.Timestamp < now.Add(-MempoolTxTTL).Unix() {
+		return fmt.Errorf("transaction expired: older than %s", MempoolTxTTL)
+	}
 
 	sender, ok := state.Accounts[tx.From]
 	if !ok {

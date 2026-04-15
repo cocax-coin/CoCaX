@@ -306,6 +306,38 @@ func TestMempool_OrderedInsertionAndLimit(t *testing.T) {
 	}
 }
 
+func TestMempool_RejectsExpiredTransaction(t *testing.T) {
+	priv, _ := core.GenerateKeyPair()
+	addr := core.DeriveAddress(&priv.PublicKey)
+	cs := &core.ChainState{
+		Accounts: map[string]*core.Account{
+			addr: {Address: addr, Balance: 10, Nonce: 0},
+		},
+		Mempool: []core.Transaction{},
+	}
+	api := rpc.NewServer(cs, "", "")
+
+	tx := core.Transaction{
+		From:      addr,
+		To:        "CoXrecipient000000000000000000000000000000000",
+		Amount:    1.0,
+		Fee:       core.FixedFee,
+		Nonce:     1,
+		Timestamp: time.Now().Add(-core.MempoolTxTTL - time.Minute).Unix(),
+	}
+	_ = core.SignTransaction(&tx, priv)
+
+	err := api.ValidateAndAddTx(&tx)
+	if err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expected expired transaction error, got: %v", err)
+	}
+	cs.RLock()
+	defer cs.RUnlock()
+	if len(cs.Mempool) != 0 {
+		t.Fatalf("expected empty mempool, got %d txs", len(cs.Mempool))
+	}
+}
+
 // cloneChainStateValues is a test helper that deep copies the chain state for
 // isolated verification scenarios.
 func cloneChainStateValues(src *core.ChainState) *core.ChainState {
