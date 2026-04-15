@@ -647,9 +647,9 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 func (a *Server) allowRPCRequest(remoteAddr string) bool {
 	hostPort := strings.TrimSpace(remoteAddr)
-	host := "unknown"
-	if hostPort != "" {
-		host = hostPort
+	host := hostPort
+	if host == "" {
+		host = "unknown"
 	}
 	if strings.Contains(hostPort, ":") {
 		if parsed, err := netip.ParseAddrPort(hostPort); err == nil {

@@ -10,6 +10,7 @@ import (
 	core "cocax-core/core"
 )
 
+// Reuses freeAddr and waitFor helpers from core/network_test.go (same package).
 const syncTimeoutDuration = 20 * time.Second
 
 func TestStressP2PSync50Nodes(t *testing.T) {

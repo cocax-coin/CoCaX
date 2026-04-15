@@ -399,6 +399,7 @@ async function fetchLatestBlock() {
 function estimateHashPowerFromDifficulty(difficulty) {
   const diff = Number(difficulty || 0);
   if (!Number.isFinite(diff) || diff < 0) return 0;
+  if (diff > 64) return Number.MAX_VALUE;
   // CoCaX PoW requires N leading zero hex digits in the block hash, where N=difficulty.
   // Under that rule, expected attempts ~= 16^difficulty.
   // Divide by CoCaX target block time (30s) to estimate network hashes/second.
