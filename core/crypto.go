@@ -130,7 +130,17 @@ func VerifyTransaction(tx *Transaction) error {
 
 // BlockHash computes a SHA-256 based hash string for the given block (excluding the hash field).
 func BlockHash(b *Block) string {
-	data := fmt.Sprintf("%d|%s|%d|%s|%.8f|%s", b.Index, b.PrevHash, b.Timestamp, b.Miner, b.Reward, b.Memo)
+	data := fmt.Sprintf(
+		"%d|%s|%d|%d|%d|%s|%.8f|%s",
+		b.Index,
+		b.PrevHash,
+		b.Timestamp,
+		b.Difficulty,
+		b.Nonce,
+		b.Miner,
+		b.Reward,
+		b.Memo,
+	)
 	for _, tx := range b.Transactions {
 		data += fmt.Sprintf("|%d:%s", tx.SequenceNumber, tx.ID)
 	}

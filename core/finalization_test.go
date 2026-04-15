@@ -88,7 +88,9 @@ func TestResolveForkPrefersFinalizedBlocks(t *testing.T) {
 
 	altBlock := *blockA
 	altBlock.Miner = fmt.Sprintf("%s-alt", minerAddr)
-	altBlock.Hash = BlockHash(&altBlock)
+	if err := MineBlockPoW(&altBlock); err != nil {
+		t.Fatalf("MineBlockPoW: %v", err)
+	}
 	votesToAdd := calculateFinalizationThreshold() - len(altBlock.Verifications)
 	if votesToAdd < 0 {
 		votesToAdd = 0

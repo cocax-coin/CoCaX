@@ -50,7 +50,10 @@ func LoadState(dataDir, founderAddr string) (*ChainState, error) {
 		return nil, fmt.Errorf("failed to create data dir: %w", err)
 	}
 
-	genesis := buildGenesisBlock(founderAddr)
+	genesis, err := buildGenesisBlock(founderAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build genesis block: %w", err)
+	}
 	cs.Chain = []Block{genesis}
 	cs.Accounts[founderAddr] = &Account{
 		Address: founderAddr,
@@ -92,7 +95,7 @@ func SaveState(dataDir string, cs *ChainState) error {
 
 // buildGenesisBlock constructs the genesis block.
 // founderAddr is the address that receives the genesis coinbase (for record keeping).
-func buildGenesisBlock(founderAddr string) Block {
+func buildGenesisBlock(founderAddr string) (Block, error) {
 	now := time.Now().Unix()
 	genesisTx := Transaction{
 		ID:         "genesis-coinbase",
@@ -109,11 +112,14 @@ func buildGenesisBlock(founderAddr string) Block {
 		Index:        0,
 		PrevHash:     "0000000000000000000000000000000000000000000000000000000000000000",
 		Timestamp:    now,
+		Difficulty:   InitialDifficulty,
 		Transactions: []Transaction{genesisTx},
 		Reward:       0,
 		Miner:        "genesis",
 		Memo:         GenesisMessage,
 	}
-	block.Hash = BlockHash(&block)
-	return block
+	if err := MineBlockPoW(&block); err != nil {
+		return Block{}, err
+	}
+	return block, nil
 }

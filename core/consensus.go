@@ -14,6 +14,7 @@ type BlockVerifier func(*Block) error
 
 type verificationSnapshot struct {
 	lastBlock    Block
+	chain        []Block
 	mintedSupply float64
 	accounts     map[string]Account
 }
@@ -45,6 +46,7 @@ func snapshotState(state *ChainState) verificationSnapshot {
 	snap := verificationSnapshot{
 		mintedSupply: state.MintedSupply,
 		accounts:     cloneAccountValues(state.Accounts),
+		chain:        append([]Block{}, state.Chain...),
 	}
 	if len(state.Chain) > 0 {
 		snap.lastBlock = state.Chain[len(state.Chain)-1]
@@ -58,6 +60,7 @@ func snapshotStateLocked(state *ChainState) verificationSnapshot {
 	snap := verificationSnapshot{
 		mintedSupply: state.MintedSupply,
 		accounts:     cloneAccountValues(state.Accounts),
+		chain:        append([]Block{}, state.Chain...),
 	}
 	if len(state.Chain) > 0 {
 		snap.lastBlock = state.Chain[len(state.Chain)-1]
@@ -68,6 +71,17 @@ func snapshotStateLocked(state *ChainState) verificationSnapshot {
 func verifyBlockAgainstSnapshot(snap verificationSnapshot, block *Block) error {
 	if block == nil {
 		return fmt.Errorf("block is nil")
+	}
+	expectedDifficulty := ExpectedDifficulty(snap.chain)
+	gotDifficulty := clampDifficulty(block.Difficulty)
+	if gotDifficulty != expectedDifficulty {
+		return fmt.Errorf("difficulty mismatch: got %d want %d", gotDifficulty, expectedDifficulty)
+	}
+	if block.Hash != BlockHash(block) {
+		return fmt.Errorf("block hash mismatch")
+	}
+	if !HashMeetsDifficulty(block.Hash, gotDifficulty) {
+		return fmt.Errorf("block hash does not satisfy declared difficulty")
 	}
 	if snap.lastBlock.Hash != "" {
 		if block.Index != snap.lastBlock.Index+1 {
@@ -139,6 +153,8 @@ func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
 		return nil, fmt.Errorf("no genesis block found")
 	}
 	prev := state.Chain[len(state.Chain)-1]
+	chain := make([]Block, len(state.Chain))
+	copy(chain, state.Chain)
 	mempool := make([]Transaction, len(state.Mempool))
 	copy(mempool, state.Mempool)
 	minted := state.MintedSupply
@@ -176,12 +192,54 @@ func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
 		Index:        blockIndex,
 		PrevHash:     prev.Hash,
 		Timestamp:    now.Unix(),
+		Difficulty:   ExpectedDifficulty(chain),
 		Transactions: txs,
 		Reward:       reward,
 		Miner:        miner,
 	}
-	block.Hash = BlockHash(block)
+	if err := MineBlockPoW(block); err != nil {
+		return nil, err
+	}
 	return block, nil
+}
+
+// MineBlockPoW updates nonce/hash until block satisfies its configured difficulty.
+func MineBlockPoW(block *Block) error {
+	if block == nil {
+		return fmt.Errorf("block is nil")
+	}
+	block.Difficulty = clampDifficulty(block.Difficulty)
+	maxPoWAttempts := maxPoWAttemptsForDifficulty(block.Difficulty)
+	for attempts := uint64(0); attempts < maxPoWAttempts; attempts++ {
+		block.Hash = BlockHash(block)
+		if HashMeetsDifficulty(block.Hash, block.Difficulty) {
+			return nil
+		}
+		block.Nonce++
+	}
+	return fmt.Errorf("failed to mine block within %d attempts", maxPoWAttempts)
+}
+
+func maxPoWAttemptsForDifficulty(difficulty uint32) uint64 {
+	const (
+		minAttempts = uint64(100_000)
+		maxAttempts = uint64(500_000_000)
+	)
+	if difficulty == 0 {
+		return minAttempts
+	}
+	if difficulty >= 16 {
+		return maxAttempts
+	}
+	expected := uint64(1) << (difficulty * 4)
+	if expected > maxAttempts/4 {
+		return maxAttempts
+	}
+	limit := expected * 4
+	if limit < minAttempts {
+		return minAttempts
+	}
+	return limit
 }
 
 // DistributeRewards credits the miner while respecting the supply cap.
