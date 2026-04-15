@@ -57,6 +57,8 @@ func CalculateNewDifficulty(lastBlock, firstBlockInWindow *Block) uint32 {
 	}
 
 	lastDifficulty := clampDifficulty(lastBlock.Difficulty)
+	// Add half of the divisor to perform nearest-integer rounding and avoid
+	// systematic downward bias from truncating integer division.
 	numerator := uint64(lastDifficulty)*uint64(targetTime) + uint64(actualTime)/2
 	newDifficulty := uint32(numerator / uint64(actualTime))
 	return clampDifficulty(newDifficulty)

@@ -228,13 +228,10 @@ func maxPoWAttemptsForDifficulty(difficulty uint32) uint64 {
 	if difficulty == 0 {
 		return minAttempts
 	}
-	expected := uint64(1)
-	for i := uint32(0); i < difficulty; i++ {
-		if expected > maxAttempts/16 {
-			return maxAttempts
-		}
-		expected *= 16
+	if difficulty >= 16 {
+		return maxAttempts
 	}
+	expected := uint64(1) << (difficulty * 4)
 	if expected > maxAttempts/4 {
 		return maxAttempts
 	}
