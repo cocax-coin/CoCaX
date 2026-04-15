@@ -351,6 +351,8 @@ func (n *P2PNode) connectPeer(addr string) {
 	if peerHello.ChainLength < chainLen {
 		return
 	}
+	// When lengths are equal, request from genesis (from=0) so both sides can
+	// compare full cumulative work and still converge on the heavier chain.
 	syncFrom := 0
 	if peerHello.ChainLength > chainLen {
 		syncFrom = chainLen

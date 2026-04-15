@@ -49,10 +49,16 @@ func TestStressP2PSync50Nodes(t *testing.T) {
 	}
 
 	wantHeight := len(seedState.Chain)
+	seedState.RLock()
+	wantTipHash := seedState.Chain[wantHeight-1].Hash
+	seedState.RUnlock()
 	waitFor(t, time.Now().Add(syncTimeoutDuration), func() bool {
 		for _, st := range states {
 			st.RLock()
 			ok := len(st.Chain) == wantHeight
+			if ok {
+				ok = st.Chain[len(st.Chain)-1].Hash == wantTipHash
+			}
 			st.RUnlock()
 			if !ok {
 				return false

@@ -56,7 +56,7 @@ func AddTxToMempool(state *ChainState, tx *Transaction) error {
 		return fmt.Errorf("transaction expired: older than %s", MempoolTxTTL)
 	}
 	if tx.Timestamp > now.Add(maxTxFutureSkew).Unix() {
-		return fmt.Errorf("transaction timestamp too far in the future")
+		return fmt.Errorf("transaction timestamp too far in the future (max skew %s)", maxTxFutureSkew)
 	}
 
 	sender, ok := state.Accounts[tx.From]
