@@ -10,6 +10,8 @@ const (
 	// TargetBlockIntervalSeconds is the intended inter-block spacing.
 	TargetBlockIntervalSeconds = int64(30)
 	// TargetAdjustmentTimespanSeconds is the target duration of one adjustment window.
+	// CoCaX intentionally retargets every 2016 blocks on a 30-second cadence
+	// (≈16.8 hours) to react quickly to hashrate shocks and protect halving pace.
 	TargetAdjustmentTimespanSeconds = int64(DifficultyAdjustmentWindow) * TargetBlockIntervalSeconds
 	// InitialDifficulty is the default network difficulty for genesis / early chain.
 	InitialDifficulty = uint32(1)
@@ -55,7 +57,8 @@ func CalculateNewDifficulty(lastBlock, firstBlockInWindow *Block) uint32 {
 	}
 
 	lastDifficulty := clampDifficulty(lastBlock.Difficulty)
-	newDifficulty := uint32((uint64(lastDifficulty) * uint64(targetTime)) / uint64(actualTime))
+	numerator := uint64(lastDifficulty)*uint64(targetTime) + uint64(actualTime)/2
+	newDifficulty := uint32(numerator / uint64(actualTime))
 	return clampDifficulty(newDifficulty)
 }
 

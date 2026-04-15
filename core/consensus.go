@@ -209,7 +209,7 @@ func MineBlockPoW(block *Block) error {
 		return fmt.Errorf("block is nil")
 	}
 	block.Difficulty = clampDifficulty(block.Difficulty)
-	const maxPoWAttempts = uint64(10_000_000)
+	maxPoWAttempts := maxPoWAttemptsForDifficulty(block.Difficulty)
 	for attempts := uint64(0); attempts < maxPoWAttempts; attempts++ {
 		block.Hash = BlockHash(block)
 		if HashMeetsDifficulty(block.Hash, block.Difficulty) {
@@ -218,6 +218,31 @@ func MineBlockPoW(block *Block) error {
 		block.Nonce++
 	}
 	return fmt.Errorf("failed to mine block within %d attempts", maxPoWAttempts)
+}
+
+func maxPoWAttemptsForDifficulty(difficulty uint32) uint64 {
+	const (
+		minAttempts = uint64(100_000)
+		maxAttempts = uint64(500_000_000)
+	)
+	if difficulty == 0 {
+		return minAttempts
+	}
+	expected := uint64(1)
+	for i := uint32(0); i < difficulty; i++ {
+		if expected > maxAttempts/16 {
+			return maxAttempts
+		}
+		expected *= 16
+	}
+	if expected > maxAttempts/4 {
+		return maxAttempts
+	}
+	limit := expected * 4
+	if limit < minAttempts {
+		return minAttempts
+	}
+	return limit
 }
 
 // DistributeRewards credits the miner while respecting the supply cap.
