@@ -110,7 +110,7 @@ Total supply is hard-capped at 33,000,000 CoX.
 - Target timespan per window: **60,480 seconds** (2016 × 30s).
 - Safety damping per retarget:
   - maximum increase: **4x**
-  - maximum decrease: **1/4x**
+  - maximum decrease: **0.25x**
 
 ---
 
