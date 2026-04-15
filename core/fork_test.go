@@ -41,7 +41,9 @@ func TestResolveForkPrefersMoreConfirmations(t *testing.T) {
 			},
 		},
 	}
-	MineBlockPoW(&alt)
+	if err := MineBlockPoW(&alt); err != nil {
+		t.Fatalf("MineBlockPoW: %v", err)
+	}
 
 	ReplaceValidatorSet(map[string]Validator{
 		"v1": {ID: "v1", Active: true},

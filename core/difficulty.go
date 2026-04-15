@@ -68,9 +68,6 @@ func ExpectedDifficulty(chain []Block) uint32 {
 	nextIndex := last.Index + 1
 	lastDifficulty := clampDifficulty(last.Difficulty)
 
-	if nextIndex == 0 {
-		return InitialDifficulty
-	}
 	if nextIndex%DifficultyAdjustmentWindow != 0 {
 		return lastDifficulty
 	}

@@ -197,23 +197,27 @@ func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
 		Reward:       reward,
 		Miner:        miner,
 	}
-	MineBlockPoW(block)
+	if err := MineBlockPoW(block); err != nil {
+		return nil, err
+	}
 	return block, nil
 }
 
 // MineBlockPoW updates nonce/hash until block satisfies its configured difficulty.
-func MineBlockPoW(block *Block) {
+func MineBlockPoW(block *Block) error {
 	if block == nil {
-		return
+		return fmt.Errorf("block is nil")
 	}
 	block.Difficulty = clampDifficulty(block.Difficulty)
-	for {
+	const maxPoWAttempts = uint64(10_000_000)
+	for attempts := uint64(0); attempts < maxPoWAttempts; attempts++ {
 		block.Hash = BlockHash(block)
 		if HashMeetsDifficulty(block.Hash, block.Difficulty) {
-			return
+			return nil
 		}
 		block.Nonce++
 	}
+	return fmt.Errorf("failed to mine block within %d attempts", maxPoWAttempts)
 }
 
 // DistributeRewards credits the miner while respecting the supply cap.
