@@ -101,6 +101,17 @@ Total supply is hard-capped at 33,000,000 CoX.
 - Automatic reward distribution on acceptance and penalty (slashing) on rejection.
 - Full resistance against double-spend and forks via strict sequencing and signature checks.
 
+### Difficulty Adjustment & PoW
+- Each block header includes `difficulty` and `nonce`.
+- Nodes verify:
+  - the block `difficulty` matches the network-calculated expectation
+  - the block hash satisfies the declared difficulty (leading-zero PoW rule)
+- Difficulty retargets every **2016 blocks**.
+- Target timespan per window: **60,480 seconds** (2016 × 30s).
+- Safety damping per retarget:
+  - maximum increase: **4x**
+  - maximum decrease: **1/4x**
+
 ---
 
 ## HTTP API

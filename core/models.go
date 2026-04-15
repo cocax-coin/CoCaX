@@ -51,6 +51,8 @@ type Block struct {
 	PrevHash           string              `json:"prev_hash"`
 	Hash               string              `json:"hash"`
 	Timestamp          int64               `json:"timestamp"`
+	Difficulty         uint32              `json:"difficulty"`
+	Nonce              uint64              `json:"nonce"`
 	Transactions       []Transaction       `json:"transactions"`
 	Reward             float64             `json:"reward"`
 	Miner              string              `json:"miner"`

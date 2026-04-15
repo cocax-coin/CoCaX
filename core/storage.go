@@ -109,11 +109,12 @@ func buildGenesisBlock(founderAddr string) Block {
 		Index:        0,
 		PrevHash:     "0000000000000000000000000000000000000000000000000000000000000000",
 		Timestamp:    now,
+		Difficulty:   InitialDifficulty,
 		Transactions: []Transaction{genesisTx},
 		Reward:       0,
 		Miner:        "genesis",
 		Memo:         GenesisMessage,
 	}
-	block.Hash = BlockHash(&block)
+	mineBlockPoW(&block)
 	return block
 }

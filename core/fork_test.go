@@ -24,8 +24,11 @@ func TestResolveForkPrefersMoreConfirmations(t *testing.T) {
 		Index:     origBlock.Index,
 		PrevHash:  genesis.Hash,
 		Timestamp: time.Now().Unix(),
-		Reward:    BlockReward(origBlock.Index),
-		Miner:     minerAddr,
+		Difficulty: ExpectedDifficulty([]Block{
+			genesis,
+		}),
+		Reward: BlockReward(origBlock.Index),
+		Miner:  minerAddr,
 		Transactions: []Transaction{
 			{
 				ID:             "coinbase-alt",
@@ -38,7 +41,7 @@ func TestResolveForkPrefersMoreConfirmations(t *testing.T) {
 			},
 		},
 	}
-	alt.Hash = BlockHash(&alt)
+	MineProofOfWork(&alt)
 
 	ReplaceValidatorSet(map[string]Validator{
 		"v1": {ID: "v1", Active: true},
