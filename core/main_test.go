@@ -569,7 +569,7 @@ func TestAddBlockRejectsDuplicateNonceAndPenalises(t *testing.T) {
 	tx2.ID = core.TxID(&tx2)
 
 	block.Transactions = append(block.Transactions, tx1, tx2)
-	core.MineProofOfWork(block)
+	core.MineBlockPoW(block)
 
 	startBalance := cs.Accounts[minerAddr].Balance
 	err = core.AddBlock(cs, block, dir)

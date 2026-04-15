@@ -82,8 +82,3 @@ func ExpectedDifficulty(chain []Block) uint32 {
 	first := chain[firstIdx]
 	return CalculateNewDifficulty(&last, &first)
 }
-
-// MineProofOfWork updates nonce/hash until block satisfies its configured difficulty.
-func MineProofOfWork(block *Block) {
-	mineBlockPoW(block)
-}

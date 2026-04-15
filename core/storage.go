@@ -115,6 +115,6 @@ func buildGenesisBlock(founderAddr string) Block {
 		Miner:        "genesis",
 		Memo:         GenesisMessage,
 	}
-	mineBlockPoW(&block)
+	MineBlockPoW(&block)
 	return block
 }

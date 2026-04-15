@@ -197,11 +197,12 @@ func CreateBlockTemplate(state *ChainState, miner string) (*Block, error) {
 		Reward:       reward,
 		Miner:        miner,
 	}
-	mineBlockPoW(block)
+	MineBlockPoW(block)
 	return block, nil
 }
 
-func mineBlockPoW(block *Block) {
+// MineBlockPoW updates nonce/hash until block satisfies its configured difficulty.
+func MineBlockPoW(block *Block) {
 	if block == nil {
 		return
 	}

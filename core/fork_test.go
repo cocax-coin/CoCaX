@@ -41,7 +41,7 @@ func TestResolveForkPrefersMoreConfirmations(t *testing.T) {
 			},
 		},
 	}
-	MineProofOfWork(&alt)
+	MineBlockPoW(&alt)
 
 	ReplaceValidatorSet(map[string]Validator{
 		"v1": {ID: "v1", Active: true},
