@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+const invalidPoWSearchLimit = 1024
+
 func TestCalculateNewDifficultyClampsAdjustmentBounds(t *testing.T) {
 	first := &Block{Timestamp: 0}
 	lastFast := &Block{Timestamp: TargetAdjustmentTimespanSeconds / 10, Difficulty: 8}
@@ -63,7 +65,7 @@ func TestVerifyBlockRejectsDifficultyAndPoWMismatch(t *testing.T) {
 	}
 
 	badPoW := *block
-	for tries := 0; tries < 1024; tries++ {
+	for tries := 0; tries < invalidPoWSearchLimit; tries++ {
 		badPoW.Nonce++
 		badPoW.Hash = BlockHash(&badPoW)
 		if !HashMeetsDifficulty(badPoW.Hash, badPoW.Difficulty) {
