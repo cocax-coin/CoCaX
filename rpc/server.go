@@ -647,10 +647,10 @@ func (a *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 func (a *Server) allowRPCRequest(remoteAddr string) bool {
 	hostPort := strings.TrimSpace(remoteAddr)
-	if hostPort == "" {
-		return true
+	host := "unknown"
+	if hostPort != "" {
+		host = hostPort
 	}
-	host := hostPort
 	if strings.Contains(hostPort, ":") {
 		if parsed, err := netip.ParseAddrPort(hostPort); err == nil {
 			host = parsed.Addr().String()
@@ -661,6 +661,7 @@ func (a *Server) allowRPCRequest(remoteAddr string) bool {
 	now := a.rateNowFn()
 	a.rateMu.Lock()
 	defer a.rateMu.Unlock()
+	a.cleanupExpiredRateWindows(now)
 	window := a.rateByIP[host]
 	if window.start.IsZero() || now.Sub(window.start) >= a.rateWindow {
 		a.rateByIP[host] = rateWindow{start: now, count: 1}
@@ -672,4 +673,16 @@ func (a *Server) allowRPCRequest(remoteAddr string) bool {
 	window.count++
 	a.rateByIP[host] = window
 	return true
+}
+
+func (a *Server) cleanupExpiredRateWindows(now time.Time) {
+	if len(a.rateByIP) == 0 {
+		return
+	}
+	expiry := a.rateWindow * 2
+	for ip, window := range a.rateByIP {
+		if window.start.IsZero() || now.Sub(window.start) >= expiry {
+			delete(a.rateByIP, ip)
+		}
+	}
 }

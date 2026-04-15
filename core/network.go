@@ -348,6 +348,9 @@ func (n *P2PNode) connectPeer(addr string) {
 
 	fmt.Printf("[P2P] Handshake complete with %s (peer msg type: %s)\n", addr, msg.Type)
 
+	if peerHello.ChainLength < chainLen {
+		return
+	}
 	syncFrom := 0
 	if peerHello.ChainLength > chainLen {
 		syncFrom = chainLen

@@ -10,6 +10,8 @@ import (
 	core "cocax-core/core"
 )
 
+const syncTimeoutDuration = 20 * time.Second
+
 func TestStressP2PSync50Nodes(t *testing.T) {
 	if os.Getenv("RUN_STRESS_TESTS") != "1" {
 		t.Skip("set RUN_STRESS_TESTS=1 to run 50-node sync stress test")
@@ -47,7 +49,7 @@ func TestStressP2PSync50Nodes(t *testing.T) {
 	}
 
 	wantHeight := len(seedState.Chain)
-	waitFor(t, time.Now().Add(20*time.Second), func() bool {
+	waitFor(t, time.Now().Add(syncTimeoutDuration), func() bool {
 		for _, st := range states {
 			st.RLock()
 			ok := len(st.Chain) == wantHeight

@@ -399,6 +399,8 @@ async function fetchLatestBlock() {
 function estimateHashPowerFromDifficulty(difficulty) {
   const diff = Number(difficulty || 0);
   if (!Number.isFinite(diff) || diff < 0) return 0;
+  // Leading-hex-zero PoW means expected attempts ~= 16^difficulty.
+  // Divide by CoCaX target block time (30s) to estimate network hashes/second.
   return Math.pow(16, diff) / 30;
 }
 

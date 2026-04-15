@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const maxTxFutureSkew = 5 * time.Minute
+
 func pruneExpiredMempoolLocked(state *ChainState, now time.Time) {
 	if state == nil || len(state.Mempool) == 0 {
 		return
@@ -52,6 +54,9 @@ func AddTxToMempool(state *ChainState, tx *Transaction) error {
 	pruneExpiredMempoolLocked(state, now)
 	if tx.Timestamp < now.Add(-MempoolTxTTL).Unix() {
 		return fmt.Errorf("transaction expired: older than %s", MempoolTxTTL)
+	}
+	if tx.Timestamp > now.Add(maxTxFutureSkew).Unix() {
+		return fmt.Errorf("transaction timestamp too far in the future")
 	}
 
 	sender, ok := state.Accounts[tx.From]

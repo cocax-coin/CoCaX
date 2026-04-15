@@ -79,3 +79,37 @@ func TestVerifyBlockRejectsDifficultyAndPoWMismatch(t *testing.T) {
 		t.Fatalf("expected PoW validation error, got: %v", err)
 	}
 }
+
+func TestBlockWorkScaling(t *testing.T) {
+	tests := []struct {
+		difficulty uint32
+		want       string
+	}{
+		{0, "16"},
+		{1, "16"},
+		{2, "256"},
+		{3, "4096"},
+		{MaxPoWDifficulty, BlockWork(MaxPoWDifficulty).String()},
+	}
+	for _, tt := range tests {
+		got := BlockWork(tt.difficulty).String()
+		if got != tt.want {
+			t.Fatalf("BlockWork(%d): got %s want %s", tt.difficulty, got, tt.want)
+		}
+	}
+}
+
+func TestTotalDifficulty(t *testing.T) {
+	if got := TotalDifficulty(nil).String(); got != "0" {
+		t.Fatalf("empty chain total difficulty mismatch: %s", got)
+	}
+	chain := []Block{
+		{Difficulty: 1},
+		{Difficulty: 2},
+		{Difficulty: 3},
+	}
+	// 16 + 256 + 4096 = 4368
+	if got := TotalDifficulty(chain).String(); got != "4368" {
+		t.Fatalf("total difficulty mismatch: got %s want 4368", got)
+	}
+}
